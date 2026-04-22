@@ -1,0 +1,12 @@
+{
+  "name": "LigaAmadora CRM",
+  "description": "Sistema completo para gestão de campeonatos de futebol amador, integrando organizadores, clubes e árbitros.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "Authentication",
+    "Real-time Databases"
+  ]
+}
