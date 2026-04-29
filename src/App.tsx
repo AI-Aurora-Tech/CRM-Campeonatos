@@ -401,156 +401,377 @@ function ClubsView({ clubs, setClubs, players, onSelectClub, defaultPresidentId 
   );
 }
 
-function ClubDetailView({ club, players, matches, clubs, onBack, onSelectPlayer }: { club: Club, players: Player[], matches: Match[], clubs: Club[], onBack: () => void, onSelectPlayer?: (id: string) => void }) {
+function ClubDetailView({ club, players, matches, clubs, standings, championship, onBack, onSelectPlayer }: {
+  club: Club, players: Player[], matches: Match[], clubs: Club[],
+  standings: Standing[], championship: Championship,
+  onBack: () => void, onSelectPlayer?: (id: string) => void
+}) {
+  const [posFilter, setPosFilter] = useState<'TODOS'|'GOL'|'DEF'|'MEI'|'ATA'>('TODOS');
+
   const clubPlayers = players.filter(p => p.clubId === club.id);
   const clubMatches = matches.filter(m => m.homeTeamId === club.id || m.awayTeamId === club.id);
+  const standing    = standings.find(s => s.teamId === club.id);
+  const standingPos = standings.findIndex(s => s.teamId === club.id) + 1;
+
+  // ── Disciplinary ─────────────────────────────────────────────────────────
+  const suspendedPlayers = clubPlayers.filter(p => p.status === 'SUSPENDED');
+  const atRisk = clubPlayers.filter(p =>
+    p.status === 'ACTIVE' && (p.stats?.yellowCards ?? 0) >= championship.rules.yellowCardLimit - 1
+  );
+
+  // ── Documents ────────────────────────────────────────────────────────────
+  const docApproved = clubPlayers.filter(p => p.documentStatus === 'APPROVED').length;
+  const docPending  = clubPlayers.filter(p => p.documentStatus === 'PENDING').length;
+  const docRejected = clubPlayers.filter(p => p.documentStatus === 'REJECTED').length;
+
+  // ── Top scorer ───────────────────────────────────────────────────────────
+  const topScorer = [...clubPlayers].sort((a, b) => (b.stats?.goals ?? 0) - (a.stats?.goals ?? 0))[0];
+
+  // ── Matches ──────────────────────────────────────────────────────────────
+  const recentMatches   = [...clubMatches].filter(m => m.status === 'FINISHED').sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3);
+  const upcomingMatches = [...clubMatches].filter(m => m.status === 'SCHEDULED').sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3);
+
+  // ── Squad filter ─────────────────────────────────────────────────────────
+  const posGroups: Record<string, string[]> = { GOL: ['GL','GOL','GK'], DEF: ['ZAG','LAT','DEF'], MEI: ['MEI','VOL'], ATA: ['ATA'] };
+  const filteredPlayers = posFilter === 'TODOS' ? clubPlayers : clubPlayers.filter(p => posGroups[posFilter]?.includes(p.position));
+
+  const formBadge = (res: 'W'|'D'|'L') => (
+    <div className={`w-5 h-5 flex items-center justify-center rounded text-[9px] font-black text-white ${res === 'W' ? 'bg-green-500' : res === 'D' ? 'bg-yellow-400' : 'bg-red-500'}`}>
+      {res === 'W' ? 'V' : res === 'D' ? 'E' : 'D'}
+    </div>
+  );
+
+  const opponentOf = (m: Match) => clubs.find(c => c.id === (m.homeTeamId === club.id ? m.awayTeamId : m.homeTeamId));
+  const resultOf   = (m: Match) => {
+    if (!m.score) return null;
+    const myGoals  = m.homeTeamId === club.id ? m.score.home : m.score.away;
+    const oppGoals = m.homeTeamId === club.id ? m.score.away : m.score.home;
+    return { my: myGoals, opp: oppGoals, outcome: myGoals > oppGoals ? 'W' : myGoals < oppGoals ? 'L' : 'D' };
+  };
 
   return (
-    <div className="space-y-8 pb-12">
+    <div className="space-y-6 pb-12">
+      {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-4">
-        <button onClick={onBack} className="p-2 hover:bg-neutral-100 rounded-lg transition-colors">
-          <ArrowLeft size={20} />
-        </button>
+        <button onClick={onBack} className="p-2 hover:bg-neutral-100 rounded-lg transition-colors"><ArrowLeft size={20} /></button>
         <div className="flex items-center gap-4">
           <div className="relative">
-             <img src={club.logoUrl} className="w-16 h-16 rounded-2xl border-4 border-white shadow-lg bg-white p-1" />
-             <div className="absolute -bottom-1 -right-1 bg-accent text-white p-1 rounded-lg shadow-lg">
-                <Trophy size={14} />
-             </div>
+            <img src={club.logoUrl} className="w-16 h-16 rounded-2xl border-4 border-white shadow-lg bg-white p-1" />
+            <div className="absolute -bottom-1 -right-1 bg-accent text-white p-1 rounded-lg shadow-lg"><Trophy size={14} /></div>
           </div>
           <div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <h2 className="text-2xl font-black text-primary uppercase tracking-tight leading-none">{club.name}</h2>
-              <span className="text-[10px] font-black bg-neutral-100 text-text-muted px-2 py-1 rounded border border-surface-border uppercase tracking-widest">Fundado em {club.foundedYear || 'Desconhecido'}</span>
+              {club.foundedYear && <span className="text-[10px] font-black bg-neutral-100 text-text-muted px-2 py-1 rounded border border-surface-border uppercase tracking-widest">Fundado em {club.foundedYear}</span>}
+              {club.hasPendingFinance && <span className="text-[10px] font-black bg-red-100 text-red-700 px-2 py-1 rounded-full uppercase tracking-widest flex items-center gap-1"><AlertTriangle size={10} /> Pendência Financeira</span>}
+              {suspendedPlayers.length > 0 && <span className="text-[10px] font-black bg-orange-100 text-orange-700 px-2 py-1 rounded-full uppercase tracking-widest">{suspendedPlayers.length} Suspenso{suspendedPlayers.length > 1 ? 's' : ''}</span>}
             </div>
             <p className="text-[11px] font-bold text-text-muted mt-1 uppercase tracking-widest">Entidade Filiada • Liga Amadora de Futebol</p>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-8">
-          {/* Estatísticas FIFA-Style */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="bg-white border border-surface-border rounded-2xl p-6 shadow-sm hover:border-accent/30 transition-all flex flex-col items-center justify-center text-center">
-               <div className="w-10 h-10 bg-green-50 text-green-600 rounded-full flex items-center justify-center mb-4">
-                  <Target size={20} />
-               </div>
-               <p className="text-2xl font-black text-primary leading-none mb-1">{club.stats?.totalGoals || 0}</p>
-               <p className="text-[10px] font-black text-text-muted uppercase tracking-widest">Gols Pró</p>
+      {/* ── Performance na competição ───────────────────────────────────── */}
+      {standing ? (
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+          {[
+            { label: 'Posição', value: `${standingPos}º` },
+            { label: 'Pontos',  value: standing.points },
+            { label: 'Jogos',   value: standing.played },
+            { label: 'Vitórias',value: standing.wins },
+            { label: 'Empates', value: standing.draws },
+            { label: 'Derrotas',value: standing.losses },
+            { label: 'Saldo',   value: standing.goalsFor - standing.goalsAgainst > 0 ? `+${standing.goalsFor - standing.goalsAgainst}` : standing.goalsFor - standing.goalsAgainst },
+          ].map(({ label, value }) => (
+            <div key={label} className="bg-white border border-surface-border rounded-2xl p-4 text-center shadow-sm">
+              <p className="text-xl font-black text-primary leading-none mb-1">{value}</p>
+              <p className="text-[9px] font-black text-text-muted uppercase tracking-widest">{label}</p>
             </div>
-            <div className="bg-white border border-surface-border rounded-2xl p-6 shadow-sm hover:border-amber/30 transition-all flex flex-col items-center justify-center text-center">
-               <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mb-4">
-                  <Activity size={20} />
-               </div>
-               <p className="text-2xl font-black text-primary leading-none mb-1">{club.stats?.possessionAvg || 0}%</p>
-               <p className="text-[10px] font-black text-text-muted uppercase tracking-widest">Posse Média</p>
+          ))}
+          {standing.form.length > 0 && (
+            <div className="bg-white border border-surface-border rounded-2xl p-4 flex flex-col items-center justify-center gap-1.5 col-span-2 sm:col-span-4 lg:col-span-7 lg:flex-row lg:justify-start">
+              <p className="text-[9px] font-black text-text-muted uppercase tracking-widest mr-2">Forma</p>
+              {Array.from({ length: 3 }).map((_, i) => {
+                const r = standing.form[i];
+                return r ? formBadge(r) : <div key={i} className="w-5 h-5 flex items-center justify-center rounded text-[9px] bg-neutral-100 text-neutral-400">—</div>;
+              })}
             </div>
-            <div className="bg-white border border-surface-border rounded-2xl p-6 shadow-sm hover:border-blue/30 transition-all flex flex-col items-center justify-center text-center">
-               <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-4">
-                  <TrendingUp size={20} />
-               </div>
-               <p className="text-2xl font-black text-primary leading-none mb-1">{club.stats?.cleanSheets || 0}</p>
-               <p className="text-[10px] font-black text-text-muted uppercase tracking-widest">Jogos Sem Sofrer</p>
-            </div>
-          </div>
+          )}
+        </div>
+      ) : (
+        <div className="bg-white border border-surface-border rounded-2xl p-4 text-center text-[11px] text-text-muted font-bold uppercase tracking-widest">
+          Time ainda não disputou partidas nesta competição
+        </div>
+      )}
 
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-6">
+
+          {/* ── Elenco com filtro ────────────────────────────────────────── */}
           <div className="card-utility">
-            <div className="flex items-center justify-between mb-6">
-               <div className="flex items-center gap-2">
-                 <Users size={18} className="text-accent" />
-                 <h3 className="text-sm font-black uppercase tracking-tight">Elenco Registrado</h3>
-               </div>
-               <span className="text-[11px] font-bold text-text-muted">{clubPlayers.length} Atletas</span>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Users size={18} className="text-accent" />
+                <h3 className="text-sm font-black uppercase tracking-tight">Elenco Registrado</h3>
+                <span className="text-[10px] font-bold text-text-muted bg-neutral-100 px-2 py-0.5 rounded-full">{clubPlayers.length}</span>
+              </div>
+              {/* Document status badges */}
+              <div className="flex gap-1.5">
+                {docApproved > 0 && <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-green-100 text-green-700">{docApproved} OK</span>}
+                {docPending  > 0 && <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">{docPending} Pendente{docPending > 1 ? 's' : ''}</span>}
+                {docRejected > 0 && <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-red-100 text-red-700">{docRejected} Rejeitado{docRejected > 1 ? 's' : ''}</span>}
+              </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {clubPlayers.map(p => (
-                <div key={p.id} onClick={() => onSelectPlayer?.(p.id)} className="flex items-center gap-3 p-3 bg-neutral-50 rounded-xl border border-surface-border/50 hover:border-accent/40 cursor-pointer transition-all group">
-                  <img src={p.photoUrl} className="w-10 h-10 rounded-lg object-cover grayscale group-hover:grayscale-0 transition-all" />
+            {/* Position tabs */}
+            <div className="flex gap-1 mb-4 bg-neutral-100 p-1 rounded-xl w-fit">
+              {(['TODOS','GOL','DEF','MEI','ATA'] as const).map(p => (
+                <button key={p} onClick={() => setPosFilter(p)}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${posFilter === p ? 'bg-white shadow-sm text-primary' : 'text-text-muted hover:text-primary'}`}>
+                  {p === 'TODOS' ? 'Todos' : p === 'GOL' ? 'Goleiros' : p === 'DEF' ? 'Defesa' : p === 'MEI' ? 'Meio' : 'Ataque'}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {filteredPlayers.map(p => (
+                <div key={p.id} onClick={() => onSelectPlayer?.(p.id)}
+                  className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all group ${
+                    p.status === 'SUSPENDED' ? 'bg-red-50 border-red-200' : p.documentStatus === 'PENDING' ? 'bg-yellow-50 border-yellow-200' : 'bg-neutral-50 border-surface-border/50 hover:border-accent/40'
+                  }`}>
+                  <div className="relative shrink-0">
+                    <img src={p.photoUrl || `https://ui-avatars.com/api/?name=${p.name}`} className="w-10 h-10 rounded-lg object-cover grayscale group-hover:grayscale-0 transition-all" />
+                    {p.status === 'SUSPENDED' && (
+                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
+                        <X size={8} className="text-white" />
+                      </div>
+                    )}
+                    {p.documentStatus === 'PENDING' && p.status !== 'SUSPENDED' && (
+                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-400 rounded-full flex items-center justify-center">
+                        <Clock size={8} className="text-white" />
+                      </div>
+                    )}
+                  </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-bold text-primary truncate">#{p.shirtNumber} {p.name}</p>
-                    <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider">{p.position}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider">{p.position}</p>
+                      {p.status === 'SUSPENDED' && <span className="text-[8px] font-black text-red-600 uppercase">Suspenso</span>}
+                      {p.documentStatus === 'PENDING' && p.status !== 'SUSPENDED' && <span className="text-[8px] font-black text-yellow-600 uppercase">Doc. Pendente</span>}
+                      {(p.stats?.yellowCards ?? 0) >= championship.rules.yellowCardLimit - 1 && p.status !== 'SUSPENDED' && (
+                        <span className="text-[8px] font-black text-orange-500 uppercase">⚠ {p.stats?.yellowCards} amarelos</span>
+                      )}
+                    </div>
                   </div>
                   {p.stats && (
-                    <div className="text-right">
+                    <div className="text-right shrink-0">
                       <p className="text-[12px] font-black text-accent">{p.stats.rating.toFixed(1)}</p>
-                      <p className="text-[8px] font-black text-text-muted uppercase tracking-tighter">Média</p>
+                      <p className="text-[8px] font-black text-text-muted uppercase">Média</p>
                     </div>
                   )}
                 </div>
               ))}
+              {filteredPlayers.length === 0 && (
+                <div className="col-span-2 text-center py-8 text-text-muted text-sm">Nenhum atleta nesta posição.</div>
+              )}
             </div>
           </div>
 
+          {/* ── Últimos resultados ───────────────────────────────────────── */}
+          {recentMatches.length > 0 && (
+            <div className="card-utility">
+              <div className="flex items-center gap-2 mb-4">
+                <History size={18} className="text-accent" />
+                <h3 className="text-sm font-black uppercase tracking-tight">Últimos Resultados</h3>
+              </div>
+              <div className="space-y-3">
+                {recentMatches.map(m => {
+                  const opp = opponentOf(m);
+                  const res = resultOf(m);
+                  const isHome = m.homeTeamId === club.id;
+                  return (
+                    <div key={m.id} className="flex items-center gap-3 p-3 bg-neutral-50 rounded-xl border border-surface-border/50">
+                      <div className={`w-1.5 h-10 rounded-full shrink-0 ${res?.outcome === 'W' ? 'bg-green-500' : res?.outcome === 'D' ? 'bg-yellow-400' : 'bg-red-500'}`} />
+                      <img src={opp?.logoUrl} className="w-8 h-8 object-contain rounded" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[12px] font-bold text-primary truncate">{isHome ? 'Casa' : 'Fora'} · {opp?.name}</p>
+                        <p className="text-[10px] text-text-muted">{new Date(m.date).toLocaleDateString('pt-BR')}</p>
+                      </div>
+                      {res && (
+                        <div className={`text-right shrink-0`}>
+                          <p className="text-base font-black text-primary">{isHome ? res.my : res.opp} · {isHome ? res.opp : res.my}</p>
+                          <p className={`text-[9px] font-black uppercase ${res.outcome === 'W' ? 'text-green-600' : res.outcome === 'D' ? 'text-yellow-600' : 'text-red-600'}`}>
+                            {res.outcome === 'W' ? 'Vitória' : res.outcome === 'D' ? 'Empate' : 'Derrota'}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── Próximas partidas ───────────────────────────────────────── */}
+          {upcomingMatches.length > 0 && (
+            <div className="card-utility">
+              <div className="flex items-center gap-2 mb-4">
+                <Calendar size={18} className="text-accent" />
+                <h3 className="text-sm font-black uppercase tracking-tight">Próximas Partidas</h3>
+              </div>
+              <div className="space-y-3">
+                {upcomingMatches.map(m => {
+                  const opp = opponentOf(m);
+                  const isHome = m.homeTeamId === club.id;
+                  return (
+                    <div key={m.id} className="flex items-center gap-3 p-3 bg-neutral-50 rounded-xl border border-surface-border/50">
+                      <div className="w-1.5 h-10 rounded-full shrink-0 bg-accent/30" />
+                      <img src={opp?.logoUrl} className="w-8 h-8 object-contain rounded" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[12px] font-bold text-primary truncate">{isHome ? 'Casa' : 'Fora'} · {opp?.name}</p>
+                        <p className="text-[10px] text-text-muted">{new Date(m.date).toLocaleDateString('pt-BR')} às {m.time}</p>
+                      </div>
+                      <span className="text-[9px] font-black text-accent bg-accent/10 px-2 py-1 rounded-full uppercase">Agendado</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── Títulos ─────────────────────────────────────────────────── */}
           <div className="card-utility">
-            <div className="flex items-center gap-2 mb-6">
-              <History size={18} className="text-accent" />
+            <div className="flex items-center gap-2 mb-5">
+              <Award size={18} className="text-accent" />
               <h3 className="text-sm font-black uppercase tracking-tight">Histórico de Conquistas</h3>
             </div>
             {club.titles && club.titles.length > 0 ? (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {club.titles.map((title, i) => (
                   <div key={i} className="flex items-center gap-4 p-4 bg-yellow-50/30 border border-yellow-200/50 rounded-2xl">
-                    <div className="w-10 h-10 bg-yellow-400 text-white rounded-xl flex items-center justify-center shadow-lg">
-                       <Award size={20} />
-                    </div>
+                    <div className="w-10 h-10 bg-yellow-400 text-white rounded-xl flex items-center justify-center shadow-lg shrink-0"><Award size={18} /></div>
                     <div>
-                      <p className="text-[15px] font-black text-primary leading-tight">{title}</p>
-                      <p className="text-[11px] font-bold text-yellow-700/70 uppercase tracking-widest mt-0.5">Glória Eterna • Liga Amadora</p>
+                      <p className="text-[14px] font-black text-primary leading-tight">{title}</p>
+                      <p className="text-[10px] font-bold text-yellow-700/70 uppercase tracking-widest mt-0.5">Glória Eterna • Liga Amadora</p>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="p-12 text-center border-2 border-dashed border-surface-border rounded-3xl">
-                 <Trophy size={32} className="mx-auto text-neutral-300 mb-4 opacity-50" />
-                 <p className="text-sm font-bold text-text-muted">Ainda em busca da primeira taça oficial.</p>
+              <div className="p-10 text-center border-2 border-dashed border-surface-border rounded-3xl">
+                <Trophy size={28} className="mx-auto text-neutral-300 mb-3 opacity-50" />
+                <p className="text-sm font-bold text-text-muted">Ainda em busca da primeira taça.</p>
               </div>
             )}
           </div>
         </div>
 
-        <div className="space-y-6">
-          <div className="card-utility p-6 space-y-6 bg-white">
-            <h3 className="font-black text-[11px] border-b border-surface-border pb-3 uppercase tracking-widest text-text-muted">Ficha Técnica</h3>
-            
-            <div className="space-y-4">
-              <div className="flex items-start gap-3">
-                <ShieldAlert size={16} className="text-accent shrink-0" />
-                <div>
-                  <p className="text-[11px] font-bold text-text-muted uppercase tracking-wider">Endereço Sede</p>
-                  <p className="text-sm font-medium">{club.address || 'Não cadastrado'}</p>
-                </div>
-              </div>
-              
-              <div className="flex items-start gap-3">
-                <Calendar size={16} className="text-accent shrink-0" />
-                <div>
-                  <p className="text-[11px] font-bold text-text-muted uppercase tracking-wider">Mando de Campo</p>
-                  <p className="text-sm font-bold text-primary italic underline decoration-accent/30">{club.homeField || 'Sem campo atrelado'}</p>
-                </div>
-              </div>
+        {/* ── Coluna lateral ─────────────────────────────────────────────── */}
+        <div className="space-y-5">
 
-              <div className="flex items-start gap-3">
-                <FileText size={16} className="text-accent shrink-0" />
-                <div>
-                  <p className="text-[11px] font-bold text-text-muted uppercase tracking-wider">Contatos Oficiais</p>
-                  <p className="text-sm font-medium">{club.phone || 'N/A'}</p>
+          {/* Artilheiro */}
+          {topScorer && (topScorer.stats?.goals ?? 0) > 0 && (
+            <div className="card-utility bg-primary text-white border-none relative overflow-hidden">
+              <div className="absolute top-0 right-0 opacity-5 p-4"><Trophy size={80} /></div>
+              <div className="relative z-10">
+                <p className="text-[9px] font-black uppercase tracking-[0.3em] text-white/40 mb-4">Artilheiro do Clube</p>
+                <div className="flex items-center gap-3">
+                  <img src={topScorer.photoUrl || `https://ui-avatars.com/api/?name=${topScorer.name}`} className="w-14 h-14 rounded-xl object-cover border-2 border-white/20" />
+                  <div>
+                    <p className="font-black text-base leading-tight">{topScorer.name}</p>
+                    <p className="text-white/50 text-[10px] uppercase font-bold">{topScorer.position} · #{topScorer.shirtNumber}</p>
+                  </div>
+                </div>
+                <div className="mt-4 flex gap-4 border-t border-white/10 pt-4">
+                  <div><p className="text-2xl font-black">{topScorer.stats?.goals ?? 0}</p><p className="text-[9px] text-white/40 uppercase font-black">Gols</p></div>
+                  <div><p className="text-2xl font-black">{topScorer.stats?.assists ?? 0}</p><p className="text-[9px] text-white/40 uppercase font-black">Assist.</p></div>
+                  <div><p className="text-2xl font-black">{topScorer.stats?.rating?.toFixed(1) ?? '—'}</p><p className="text-[9px] text-white/40 uppercase font-black">Média</p></div>
                 </div>
               </div>
             </div>
+          )}
 
-            {club.hasPendingFinance && (
-              <div className="p-4 bg-red-50 border border-red-100 rounded-xl">
-                 <div className="flex items-center gap-2 text-red-600 mb-2">
-                   <ShieldAlert size={14} />
-                   <span className="text-[10px] font-black uppercase">Pendência Financeira</span>
-                 </div>
-                 <p className="text-[11px] text-red-700 font-medium leading-[1.4]">
-                   Clube com débitos pendentes. Regularização necessária.
-                 </p>
+          {/* Situação disciplinar */}
+          {(suspendedPlayers.length > 0 || atRisk.length > 0) && (
+            <div className="card-utility space-y-4">
+              <h3 className="font-black text-[11px] border-b border-surface-border pb-3 uppercase tracking-widest text-text-muted">Situação Disciplinar</h3>
+              {suspendedPlayers.map(p => (
+                <div key={p.id} className="flex items-center gap-2 p-2 bg-red-50 rounded-xl border border-red-100">
+                  <img src={p.photoUrl || `https://ui-avatars.com/api/?name=${p.name}`} className="w-8 h-8 rounded-lg object-cover" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[12px] font-bold text-primary truncate">{p.name}</p>
+                    <p className="text-[9px] font-black text-red-600 uppercase">Suspenso</p>
+                  </div>
+                </div>
+              ))}
+              {atRisk.map(p => (
+                <div key={p.id} className="flex items-center gap-2 p-2 bg-orange-50 rounded-xl border border-orange-100">
+                  <img src={p.photoUrl || `https://ui-avatars.com/api/?name=${p.name}`} className="w-8 h-8 rounded-lg object-cover" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[12px] font-bold text-primary truncate">{p.name}</p>
+                    <p className="text-[9px] font-black text-orange-500 uppercase">⚠ {p.stats?.yellowCards} amarelos</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Ficha Técnica */}
+          <div className="card-utility space-y-4">
+            <h3 className="font-black text-[11px] border-b border-surface-border pb-3 uppercase tracking-widest text-text-muted">Ficha Técnica</h3>
+            <div className="space-y-4">
+              {club.address && (
+                <div className="flex items-start gap-3">
+                  <MapPin size={15} className="text-accent shrink-0 mt-0.5" />
+                  <div><p className="text-[10px] font-bold text-text-muted uppercase tracking-wider">Endereço Sede</p><p className="text-sm font-medium">{club.address}</p></div>
+                </div>
+              )}
+              {club.homeField && (
+                <div className="flex items-start gap-3">
+                  <Map size={15} className="text-accent shrink-0 mt-0.5" />
+                  <div><p className="text-[10px] font-bold text-text-muted uppercase tracking-wider">Mando de Campo</p><p className="text-sm font-bold text-primary italic">{club.homeField}</p></div>
+                </div>
+              )}
+              {club.phone && (
+                <div className="flex items-start gap-3">
+                  <Bell size={15} className="text-accent shrink-0 mt-0.5" />
+                  <div><p className="text-[10px] font-bold text-text-muted uppercase tracking-wider">Telefone</p><p className="text-sm font-medium">{club.phone}</p></div>
+                </div>
+              )}
+              {club.email && (
+                <div className="flex items-start gap-3">
+                  <Mail size={15} className="text-accent shrink-0 mt-0.5" />
+                  <div><p className="text-[10px] font-bold text-text-muted uppercase tracking-wider">E-mail</p><p className="text-sm font-medium break-all">{club.email}</p></div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Regras personalizadas */}
+          {club.customRules && (
+            <div className="card-utility space-y-3">
+              <h3 className="font-black text-[11px] border-b border-surface-border pb-3 uppercase tracking-widest text-text-muted">Regras do Clube</h3>
+              <p className="text-[12px] text-text-muted leading-relaxed">{club.customRules}</p>
+            </div>
+          )}
+
+          {/* Pendência financeira */}
+          {club.hasPendingFinance && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-2xl">
+              <div className="flex items-center gap-2 text-red-600 mb-2">
+                <AlertTriangle size={14} />
+                <span className="text-[10px] font-black uppercase">Pendência Financeira</span>
               </div>
-            )}
+              <p className="text-[11px] text-red-700 leading-relaxed">Clube com débitos pendentes. Regularização necessária para participar de novas rodadas.</p>
+            </div>
+          )}
+
+          {/* Stats históricos */}
+          <div className="card-utility space-y-4">
+            <h3 className="font-black text-[11px] border-b border-surface-border pb-3 uppercase tracking-widest text-text-muted">Estatísticas Históricas</h3>
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div><p className="text-lg font-black text-primary">{club.stats?.totalGoals ?? 0}</p><p className="text-[9px] font-black text-text-muted uppercase tracking-wider">Gols Pró</p></div>
+              <div><p className="text-lg font-black text-primary">{club.stats?.possessionAvg ?? 0}%</p><p className="text-[9px] font-black text-text-muted uppercase tracking-wider">Posse Méd.</p></div>
+              <div><p className="text-lg font-black text-primary">{club.stats?.cleanSheets ?? 0}</p><p className="text-[9px] font-black text-text-muted uppercase tracking-wider">Sem Sofrer</p></div>
+            </div>
           </div>
         </div>
       </div>
@@ -3979,12 +4200,14 @@ function App() {
                 />
               )}
               {currentView === 'club-detail' && selectedClubId && (
-                <ClubDetailView 
-                  club={clubs.find(c => c.id === selectedClubId)!} 
-                  players={players} 
-                  matches={matches} 
+                <ClubDetailView
+                  club={clubs.find(c => c.id === selectedClubId)!}
+                  players={players}
+                  matches={matches}
                   clubs={clubs}
-                  onBack={() => setCurrentView('clubs')} 
+                  standings={standings}
+                  championship={championship}
+                  onBack={() => setCurrentView('clubs')}
                   onSelectPlayer={(id) => {
                     setSelectedPlayerId(id);
                     setCurrentView('player-detail');
