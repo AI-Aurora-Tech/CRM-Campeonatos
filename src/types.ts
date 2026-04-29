@@ -77,6 +77,12 @@ export interface Player {
   id: string;
   clubId: string;
   name: string;
+  rg?: string;
+  cpf?: string;
+  fatherName?: string;
+  motherName?: string;
+  guardianName?: string;
+  guardianPhone?: string;
   shirtNumber: number;
   position: string;
   status: 'ACTIVE' | 'SUSPENDED';
