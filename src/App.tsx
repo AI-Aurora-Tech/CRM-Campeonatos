@@ -1760,10 +1760,45 @@ function MatchCenterView({
   const [events, setEvents] = useState<MatchEvent[]>(match.events || []);
   const [homeScore, setHomeScore] = useState(match.score?.home || 0);
   const [awayScore, setAwayScore] = useState(match.score?.away || 0);
-  const [isPaused, setIsPaused] = useState(false);
+  const [isPaused, setIsPaused] = useState(true);
 
   const homeClub = clubs.find(c => c.id === match.homeTeamId);
   const awayClub = clubs.find(c => c.id === match.awayTeamId);
+
+  // Lineup setup — done inline at match start, no pre-confirmation required
+  const [localLineups, setLocalLineups] = useState<NonNullable<Match['lineups']>>(
+    match.lineups || { home: { starters: [], substitutes: [] }, away: { starters: [], substitutes: [] } }
+  );
+  const [showLineupSetup, setShowLineupSetup] = useState(!match.lineups);
+
+  const homePlayers = players.filter(p => p.clubId === match.homeTeamId);
+  const awayPlayers = players.filter(p => p.clubId === match.awayTeamId);
+
+  const togglePlayer = (team: 'home' | 'away', playerId: string) => {
+    setLocalLineups(prev => {
+      const lineup = prev[team];
+      if (lineup.starters.includes(playerId)) {
+        return { ...prev, [team]: { starters: lineup.starters.filter(id => id !== playerId), substitutes: [...lineup.substitutes, playerId] } };
+      } else if (lineup.substitutes.includes(playerId)) {
+        return { ...prev, [team]: { ...lineup, substitutes: lineup.substitutes.filter(id => id !== playerId) } };
+      } else {
+        return { ...prev, [team]: { starters: [...lineup.starters, playerId], substitutes: lineup.substitutes } };
+      }
+    });
+  };
+
+  const getPlayerRole = (team: 'home' | 'away', playerId: string): 'starter' | 'substitute' | 'none' => {
+    const lineup = localLineups[team];
+    if (lineup.starters.includes(playerId)) return 'starter';
+    if (lineup.substitutes.includes(playerId)) return 'substitute';
+    return 'none';
+  };
+
+  const confirmLineup = () => {
+    onUpdateMatch({ ...match, lineups: localLineups });
+    setShowLineupSetup(false);
+    setIsPaused(false);
+  };
 
   // Clock simulation: 1 in-game minute every 3 seconds for demo purposes
   useEffect(() => {
@@ -1815,11 +1850,9 @@ function MatchCenterView({
   const renderPlayerPicker = () => {
     if (!pendingEvent) return null;
     const team = pendingEvent.teamId === match.homeTeamId ? 'home' : 'away';
-    const lineup = match.lineups?.[team];
+    const lineup = localLineups[team];
     const teamName = team === 'home' ? homeClub?.shortName : awayClub?.shortName;
-    const teamPlayers = lineup 
-      ? players.filter(p => [...lineup.starters, ...lineup.substitutes].includes(p.id))
-      : [];
+    const teamPlayers = players.filter(p => [...lineup.starters, ...lineup.substitutes].includes(p.id));
 
     return (
       <div className="fixed inset-0 bg-primary/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
@@ -1852,8 +1885,90 @@ function MatchCenterView({
     );
   };
 
+  const renderLineupSetup = () => {
+    if (!showLineupSetup) return null;
+
+    const renderTeamColumn = (team: 'home' | 'away', teamPlayers: Player[], club: Club | undefined) => (
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-surface-border">
+          <img src={club?.logoUrl} className="w-8 h-8 object-contain rounded" />
+          <div>
+            <p className="text-[11px] font-black uppercase text-primary">{club?.name}</p>
+            <p className="text-[10px] text-text-muted">
+              {localLineups[team].starters.length} titulares · {localLineups[team].substitutes.length} reservas
+            </p>
+          </div>
+        </div>
+        <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1 custom-scrollbar">
+          {teamPlayers.length === 0 && (
+            <p className="text-[11px] text-text-muted italic p-4 text-center">Nenhum atleta cadastrado neste time.</p>
+          )}
+          {teamPlayers.map(p => {
+            const role = getPlayerRole(team, p.id);
+            return (
+              <button
+                key={p.id}
+                onClick={() => togglePlayer(team, p.id)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all text-left ${
+                  role === 'starter'
+                    ? 'bg-green-50 border-green-200 text-green-800'
+                    : role === 'substitute'
+                    ? 'bg-amber-50 border-amber-200 text-amber-800'
+                    : 'bg-neutral-50 border-surface-border text-text-muted hover:border-accent/40 hover:bg-accent/5'
+                }`}
+              >
+                <img src={p.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(p.name)}`} className="w-8 h-8 rounded-lg object-cover flex-shrink-0 border border-white/60" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] font-black truncate">{p.name}</p>
+                  <p className="text-[9px] font-bold uppercase opacity-60">#{p.shirtNumber} · {p.position}</p>
+                </div>
+                <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full flex-shrink-0 ${
+                  role === 'starter' ? 'bg-green-200 text-green-800' :
+                  role === 'substitute' ? 'bg-amber-200 text-amber-800' :
+                  'bg-neutral-200 text-neutral-500'
+                }`}>
+                  {role === 'starter' ? 'T' : role === 'substitute' ? 'R' : '—'}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+
+    return (
+      <div className="fixed inset-0 bg-primary/70 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+        <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl overflow-hidden border border-surface-border flex flex-col max-h-[95vh]">
+          <div className="p-6 border-b border-surface-border bg-neutral-50 flex items-center justify-between flex-shrink-0">
+            <div>
+              <h2 className="text-lg font-black text-primary uppercase tracking-tight">Escalação da Partida</h2>
+              <p className="text-[10px] text-text-muted mt-0.5">Toque no jogador para definir: <span className="font-black text-green-700">T</span> = Titular · <span className="font-black text-amber-700">R</span> = Reserva · <span className="font-black text-neutral-500">—</span> = Fora</p>
+            </div>
+          </div>
+
+          <div className="p-6 flex gap-6 overflow-hidden flex-1">
+            {renderTeamColumn('home', homePlayers, homeClub)}
+            <div className="w-px bg-surface-border flex-shrink-0" />
+            {renderTeamColumn('away', awayPlayers, awayClub)}
+          </div>
+
+          <div className="p-5 border-t border-surface-border bg-neutral-50 flex justify-end gap-3 flex-shrink-0">
+            <button onClick={onExit} className="btn-outline text-sm">Cancelar</button>
+            <button
+              onClick={confirmLineup}
+              className="px-8 py-2.5 bg-accent text-white font-black text-xs uppercase tracking-widest rounded-xl hover:brightness-110 transition-all shadow-lg shadow-accent/20 flex items-center gap-2"
+            >
+              <Radio size={14} className="animate-pulse" /> Apitar! Iniciar Partida
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    );
+  };
+
   return (
     <div className="max-w-5xl mx-auto space-y-8 pb-20">
+      {renderLineupSetup()}
       {renderPlayerPicker()}
       {/* Real-time Header */}
       <div className="bg-neutral-900 rounded-[2.5rem] p-10 text-white relative overflow-hidden shadow-2xl border border-white/5">
@@ -4215,14 +4330,10 @@ function App() {
                 />
               )}
               {currentView === 'matches' && (
-                <MatchesView 
-                  clubs={clubs} 
-                  matches={matches} 
+                <MatchesView
+                  clubs={clubs}
+                  matches={matches}
                   venues={venues}
-                  onSelectLineup={(id) => {
-                    setSelectedMatchId(id);
-                    setCurrentView('lineup');
-                  }} 
                   onSwitchToMatchCenter={(id) => {
                     setSelectedMatchId(id);
                     setMatches(prev => prev.map(m => m.id === id ? { ...m, status: 'LIVE' } : m));
@@ -4547,19 +4658,17 @@ function StatCard({ label, value, subValue, icon, onClick }: { label: string, va
   );
 }
 
-function MatchesView({ 
-  clubs, 
-  matches, 
+function MatchesView({
+  clubs,
+  matches,
   venues,
-  onSelectLineup,
   onSwitchToMatchCenter,
   onApproveReport,
   onContestReport
-}: { 
-  clubs: Club[], 
-  matches: Match[], 
+}: {
+  clubs: Club[],
+  matches: Match[],
   venues: Venue[],
-  onSelectLineup: (id: string) => void,
   onSwitchToMatchCenter: (id: string) => void,
   onApproveReport: (id: string) => void,
   onContestReport: (id: string, reason: string) => void
@@ -4683,26 +4792,12 @@ function MatchesView({
               )}
 
               {m.status === 'SCHEDULED' && (
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => onSelectLineup(m.id)}
-                    className="px-3 py-1.5 bg-neutral-100 hover:bg-neutral-200 text-primary text-[10px] font-black uppercase rounded-lg transition-colors border border-surface-border"
-                  >
-                    Escalação
-                  </button>
-                  <button 
-                    onClick={() => {
-                      if (!m.lineups) {
-                        alert('Defina a escalação antes de iniciar a transmissão.');
-                        return;
-                      }
-                      onSwitchToMatchCenter(m.id);
-                    }}
-                    className="px-3 py-1.5 bg-accent text-white text-[10px] font-black uppercase rounded-lg transition-all shadow-md hover:scale-105 active:scale-95 flex items-center gap-1.5"
-                  >
-                    <Radio size={12} className="animate-pulse" /> Transmitir
-                  </button>
-                </div>
+                <button
+                  onClick={() => onSwitchToMatchCenter(m.id)}
+                  className="px-3 py-1.5 bg-accent text-white text-[10px] font-black uppercase rounded-lg transition-all shadow-md hover:scale-105 active:scale-95 flex items-center gap-1.5"
+                >
+                  <Radio size={12} className="animate-pulse" /> Iniciar
+                </button>
               )}
 
               {m.status === 'LIVE' && (
