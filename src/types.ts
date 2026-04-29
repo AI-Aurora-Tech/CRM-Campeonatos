@@ -183,15 +183,44 @@ export type NotificationType =
   | 'NEW_ROUND' 
   | 'MISSING_LINEUP';
 
+export type NotificationChannel = 'email' | 'sms' | 'push';
+
 export interface Notification {
   id: string;
   type: NotificationType;
   clubId: string;
   recipientEmail: string;
+  channel?: NotificationChannel;
   sentAt?: string;
   status: 'QUEUED' | 'SENT' | 'FAILED';
   subject: string;
   content: string;
   matchId?: string;
   playerId?: string;
+}
+
+export interface Invoice {
+  id: string;
+  clubId: string;
+  championshipId?: string;
+  amountCents: number;
+  description: string;
+  dueDate: string;
+  status: 'OPEN' | 'PAID' | 'CANCELLED' | 'OVERDUE';
+}
+
+export interface Payment {
+  id: string;
+  invoiceId: string;
+  externalId?: string;
+  status: 'PENDING' | 'CONFIRMED' | 'FAILED' | 'REFUNDED';
+  method: string;
+}
+
+export interface FeeDefinition {
+  id: string;
+  championshipId: string;
+  name: string;
+  amountCents: number;
+  category: string;
 }

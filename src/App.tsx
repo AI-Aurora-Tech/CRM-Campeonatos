@@ -9,6 +9,7 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { 
   Trophy, 
   Users, 
@@ -58,7 +59,9 @@ import {
   Map,
   Building2,
   AlertTriangle,
-  Radio
+  Radio,
+  Wallet,
+  ClipboardList
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -77,23 +80,16 @@ import {
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
-import { 
-  MOCK_USER, 
-  MOCK_CHAMPIONSHIP, 
-  MOCK_CLUBS, 
-  MOCK_MATCHES, 
-  MOCK_PLAYERS,
-  MOCK_REFEREES,
-  MOCK_RATINGS,
-  MOCK_VENUES
-} from './mockData';
+import { useAppData } from './hooks/useAppData';
+import { AuthPanel } from './components/AuthPanel';
+import { FinancialDashboardView } from './features/FinancialDashboardView';
 import { Match, Championship, Standing, MatchEvent, Club, Player, Referee, RefereeRating, Lineup, Notification, NotificationType, MediaAsset, Venue } from './types';
 
 // Types for navigation
-type View = 'dashboard' | 'championships' | 'clubs' | 'players' | 'matches' | 'reports' | 'club-detail' | 'referees' | 'lineup' | 'player-detail' | 'automation' | 'public-portal' | 'media' | 'analytics' | 'venues' | 'eligibility';
+type View = 'dashboard' | 'championships' | 'clubs' | 'players' | 'matches' | 'reports' | 'financial' | 'club-detail' | 'referees' | 'lineup' | 'player-detail' | 'automation' | 'public-portal' | 'media' | 'analytics' | 'venues' | 'eligibility';
 
 // Sub-components for better organization
-function ClubsView({ clubs, setClubs, players, onSelectClub }: { clubs: Club[], setClubs: React.Dispatch<React.SetStateAction<Club[]>>, players: Player[], onSelectClub: (id: string) => void }) {
+function ClubsView({ clubs, setClubs, players, onSelectClub, defaultPresidentId }: { clubs: Club[], setClubs: React.Dispatch<React.SetStateAction<Club[]>>, players: Player[], onSelectClub: (id: string) => void, defaultPresidentId: string }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingClub, setEditingClub] = useState<Club | null>(null);
   const [formData, setFormData] = useState({ 
@@ -147,7 +143,7 @@ function ClubsView({ clubs, setClubs, players, onSelectClub }: { clubs: Club[], 
       const newClub: Club = {
         id: `club-${Date.now()}`,
         ...formData,
-        presidentId: MOCK_USER.id // Defaulting for MVP
+        presidentId: defaultPresidentId
       };
       setClubs([...clubs, newClub]);
     }
@@ -1192,13 +1188,108 @@ function AdvancedAnalyticsView({
   );
 }
 
-function ChampionshipsView({ championship, setChampionship }: { championship: Championship, setChampionship: React.Dispatch<React.SetStateAction<Championship>> }) {
+function ChampionshipsView({
+  championship,
+  setChampionship,
+  supabase,
+  useRemote,
+  publicSlug,
+  onScheduleReload,
+}: {
+  championship: Championship;
+  setChampionship: React.Dispatch<React.SetStateAction<Championship>>;
+  supabase: SupabaseClient | null;
+  useRemote: boolean;
+  publicSlug: string | null;
+  onScheduleReload: () => Promise<void>;
+}) {
+  const [schedMsg, setSchedMsg] = useState<string | null>(null);
+
+  const runRpc = async (name: string, args: Record<string, unknown>) => {
+    if (!supabase || !useRemote) {
+      setSchedMsg('Faça login com Supabase para usar o agendador.');
+      return;
+    }
+    setSchedMsg(null);
+    const { data, error } = await supabase.rpc(name, args);
+    if (error) {
+      setSchedMsg(error.message);
+      return;
+    }
+    setSchedMsg(typeof data === 'number' ? `${name}: ${data} linha(s) afetada(s).` : `${name}: ok.`);
+    await onScheduleReload();
+  };
+
   return (
     <div className="space-y-8 pb-12">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-black text-primary uppercase leading-none">Gestão do Campeonato</h2>
           <p className="text-[11px] font-bold text-text-muted mt-1 uppercase tracking-widest">Configurações Gerais e Identidade Visual</p>
+        </div>
+      </div>
+
+      {publicSlug && (
+        <div className="card-utility p-6 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-[10px] font-black uppercase text-text-muted tracking-widest mb-1">Portal público</p>
+            <p className="text-sm font-bold text-primary break-all">
+              {typeof window !== 'undefined' ? `${window.location.origin}/p/${publicSlug}` : `/p/${publicSlug}`}
+            </p>
+          </div>
+          <a
+            href={`/p/${publicSlug}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs font-black uppercase text-accent border border-accent/30 px-4 py-2 rounded-xl hover:bg-accent/5"
+          >
+            Abrir em nova aba
+          </a>
+        </div>
+      )}
+
+      <div className="card-utility p-6 space-y-4">
+        <h3 className="text-sm font-black uppercase text-primary tracking-tight">Calendário & chaves (Postgres)</h3>
+        <p className="text-xs text-text-muted">
+          Geração de turno e mata-mata via funções SQL. Conflitos listados por clube/data/hora.
+        </p>
+        {schedMsg && <p className="text-xs text-accent font-bold">{schedMsg}</p>}
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            className="btn-outline text-xs font-bold uppercase"
+            onClick={() =>
+              void runRpc('generate_round_robin', { p_championship_id: championship.id, p_rounds: 1 })
+            }
+          >
+            Rodada (todos contra todos)
+          </button>
+          <button
+            type="button"
+            className="btn-outline text-xs font-bold uppercase"
+            onClick={async () => {
+              if (!supabase || !useRemote) return;
+              const { data, error } = await supabase.rpc('detect_schedule_conflicts', {
+                p_championship_id: championship.id,
+              });
+              if (error) setSchedMsg(error.message);
+              else setSchedMsg(`Conflitos: ${JSON.stringify(data ?? [])}`);
+            }}
+          >
+            Detectar conflitos
+          </button>
+          <button
+            type="button"
+            className="btn-primary text-xs font-bold uppercase"
+            onClick={() =>
+              void runRpc('generate_knockout_from_standings', {
+                p_championship_id: championship.id,
+                p_pairs: 2,
+              })
+            }
+          >
+            Chave mata-mata (demo)
+          </button>
         </div>
       </div>
 
@@ -1444,7 +1535,7 @@ function MatchCenterView({
             </div>
           </div>
 
-          <div className="flex gap-4 mt-12">
+          <div className="flex gap-4 mt-12 flex-wrap justify-center">
             <button 
               onClick={() => setIsPaused(!isPaused)}
               className="px-6 py-3 bg-white/5 hover:bg-white/10 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all border border-white/10"
@@ -1462,6 +1553,14 @@ function MatchCenterView({
               Finalizar Jogo
             </button>
           </div>
+          <a
+            href={`/field/${match.id}`}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-6 inline-block text-[10px] font-black uppercase tracking-widest text-accent/90 hover:text-accent border-b border-accent/30"
+          >
+            Modo campo (nova aba / PWA)
+          </a>
         </div>
       </div>
 
@@ -1801,6 +1900,11 @@ function DocumentReviewView({ players, clubs, setPlayers }: { players: Player[],
             <span className="text-[11px] font-black uppercase">{pendingPlayers.length} Pendências</span>
          </div>
       </div>
+
+      <p className="text-[11px] text-text-muted max-w-2xl">
+        No Supabase, use o bucket <code className="bg-neutral-100 px-1 rounded text-[10px]">documents</code> (criar no painel) e a tabela <code className="bg-neutral-100 px-1 rounded text-[10px]">documents</code> /{' '}
+        <code className="bg-neutral-100 px-1 rounded text-[10px]">regulation_versions</code> para versões e prazos — metadados versionados no Postgres e arquivos no Storage.
+      </p>
 
       <div className="card-utility p-0 overflow-hidden">
         <table className="w-full text-left">
@@ -2268,7 +2372,7 @@ function PublicPortalView({ clubs, matches, players, standings, championship }: 
   );
 }
 
-function AutomationView({ clubs, matches, players, notifications, setNotifications }: { clubs: Club[], matches: Match[], players: Player[], notifications: Notification[], setNotifications: React.Dispatch<React.SetStateAction<Notification[]>> }) {
+function AutomationView({ clubs, matches, players, notifications, setNotifications, supabase, useRemote, organizationId }: { clubs: Club[], matches: Match[], players: Player[], notifications: Notification[], setNotifications: React.Dispatch<React.SetStateAction<Notification[]>>, supabase: SupabaseClient | null, useRemote: boolean, organizationId: string }) {
   const [isScanning, setIsScanning] = useState(false);
 
   const scanForNotifications = () => {
@@ -2294,6 +2398,7 @@ function AutomationView({ clubs, matches, players, notifications, setNotificatio
               type: 'MATCH_TOMORROW',
               clubId: homeClub.id,
               recipientEmail: homeClub.email,
+              channel: 'email',
               status: 'QUEUED',
               subject: 'Convite de Jogo: Você tem partida amanhã!',
               content: `Olá ${homeClub.name}, lembre-se que amanhã você enfrenta o ${awayClub?.name} na ${m.location} às ${m.time}.`,
@@ -2306,6 +2411,7 @@ function AutomationView({ clubs, matches, players, notifications, setNotificatio
                 type: 'MISSING_LINEUP',
                 clubId: homeClub.id,
                 recipientEmail: homeClub.email,
+                channel: 'email',
                 status: 'QUEUED',
                 subject: 'PENDENTE: Escalação não definida',
                 content: `Atenção! Sua escalação para o jogo de amanhã contra o ${awayClub?.name} ainda não foi enviada.`,
@@ -2323,6 +2429,7 @@ function AutomationView({ clubs, matches, players, notifications, setNotificatio
                type: 'MATCH_7_DAYS',
                clubId: homeClub.id,
                recipientEmail: homeClub.email,
+               channel: 'email',
                status: 'QUEUED',
                subject: 'Agenda Varzeana: Jogo em 7 dias',
                content: `Preparado? Daqui a uma semana você terá um confronto importante contra o ${awayClub?.name}.`,
@@ -2341,6 +2448,7 @@ function AutomationView({ clubs, matches, players, notifications, setNotificatio
             type: 'PLAYER_SUSPENDED',
             clubId: club.id,
             recipientEmail: club.email,
+            channel: 'email',
             status: 'QUEUED',
             subject: 'ALERTA DE SUSPENSÃO',
             content: `O atleta ${p.name} (Camisa ${p.shirtNumber}) atingiu o limite de cartões e está SUSPENSO para a próxima rodada.`,
@@ -2355,11 +2463,37 @@ function AutomationView({ clubs, matches, players, notifications, setNotificatio
   };
 
   const sendAll = () => {
-    setNotifications(prev => prev.map(n => ({ 
-      ...n, 
-      status: 'SENT', 
-      sentAt: new Date().toISOString() 
-    })));
+    void (async () => {
+      if (supabase && useRemote) {
+        const pending = notifications.filter((n) => n.status === 'QUEUED');
+        for (const n of pending) {
+          const { error } = await supabase.from('notification_queue').insert({
+            organization_id: organizationId,
+            type: n.type,
+            channel: n.channel ?? 'email',
+            payload: {
+              to: n.recipientEmail,
+              subject: n.subject,
+              body: n.content,
+              matchId: n.matchId,
+              playerId: n.playerId,
+            },
+          });
+          if (!error) {
+            await supabase.functions.invoke('send-notification', {
+              body: { subject: n.subject, to: n.recipientEmail },
+            });
+          }
+        }
+      }
+      setNotifications((prev) =>
+        prev.map((n) =>
+          n.status === 'QUEUED'
+            ? { ...n, status: 'SENT' as const, sentAt: new Date().toISOString() }
+            : n
+        )
+      );
+    })();
   };
 
   return (
@@ -3304,16 +3438,38 @@ function MatchReportView({
   );
 }
 
-function GeminiInsights({ standings }: { standings: Standing[] }) {
+function GeminiInsights({
+  standings,
+  supabase,
+}: {
+  standings: Standing[];
+  supabase: SupabaseClient | null;
+}) {
   const [insight, setInsight] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const generateInsights = async () => {
     setLoading(true);
-    setTimeout(() => {
-      setInsight("Tendência detectada: O equilíbrio técnico do Grupo A sugere que a próxima rodada será decisiva. O Vila Nova deve focar em jogadas laterais para superar a defesa sólida do Real Madrid.");
+    try {
+      if (supabase) {
+        const { data, error } = await supabase.functions.invoke<{ suggestion?: string }>(
+          'gemini-suggest',
+          { body: { kind: 'standings_insight', standings } }
+        );
+        if (!error && data?.suggestion) {
+          setInsight(data.suggestion);
+          setLoading(false);
+          return;
+        }
+      }
+      setInsight(
+        'Tendência detectada: O equilíbrio técnico do Grupo A sugere que a próxima rodada será decisiva. O Vila Nova deve focar em jogadas laterais para superar a defesa sólida do Real Madrid.'
+      );
+    } catch {
+      setInsight('Não foi possível consultar a IA agora. Tente novamente mais tarde.');
+    } finally {
       setLoading(false);
-    }, 1500);
+    }
   };
 
   return (
@@ -3351,21 +3507,48 @@ function GeminiInsights({ standings }: { standings: Standing[] }) {
 }
 
 function App() {
+  const {
+    supabase,
+    isSupabaseConfigured: hasSupabase,
+    session,
+    authReady,
+    useRemote,
+    remoteLoading,
+    remoteError,
+    publicSlug,
+    organizationId,
+    userForUi,
+    clubs,
+    setClubs,
+    players,
+    setPlayers,
+    referees,
+    setReferees,
+    ratings,
+    setRatings,
+    matches,
+    setMatches,
+    venues,
+    setVenues,
+    matchEvents,
+    setMatchEvents,
+    notifications,
+    setNotifications,
+    mediaAssets,
+    setMediaAssets,
+    championship,
+    setChampionship,
+    loadRemote,
+    signIn,
+    signUp,
+    signOut,
+  } = useAppData();
+
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [selectedClubId, setSelectedClubId] = useState<string | null>(null);
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [clubs, setClubs] = useState<Club[]>(MOCK_CLUBS);
-  const [players, setPlayers] = useState<Player[]>(MOCK_PLAYERS);
-  const [referees, setReferees] = useState<Referee[]>(MOCK_REFEREES);
-  const [ratings, setRatings] = useState<RefereeRating[]>(MOCK_RATINGS);
-  const [matches, setMatches] = useState<Match[]>(MOCK_MATCHES);
-  const [venues, setVenues] = useState<Venue[]>(MOCK_VENUES);
-  const [matchEvents, setMatchEvents] = useState<MatchEvent[]>([]);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [mediaAssets, setMediaAssets] = useState<MediaAsset[]>([]);
-  const [championship, setChampionship] = useState<Championship>(MOCK_CHAMPIONSHIP);
 
   // Calculate Standings (Mock Implementation)
   const standings = useMemo(() => {
@@ -3490,7 +3673,8 @@ function App() {
               <NavBtn active={currentView === 'matches'} icon={<Calendar size={18} />} label="Súmulas Digitais" onClick={() => setCurrentView('matches')} />
               <NavBtn active={currentView === 'venues'} icon={<MapPin size={18} />} label="Campos & Sedes" onClick={() => setCurrentView('venues')} />
               <NavBtn active={currentView === 'eligibility'} icon={<Shield size={18} />} label="Documentos & Elegibilidade" onClick={() => setCurrentView('eligibility')} />
-              <NavBtn active={currentView === 'reports'} icon={<FileText size={18} />} label="Financeiro" onClick={() => setCurrentView('reports')} />
+              <NavBtn active={currentView === 'financial'} icon={<Wallet size={18} />} label="Financeiro" onClick={() => setCurrentView('financial')} />
+              <NavBtn active={currentView === 'reports'} icon={<ClipboardList size={18} />} label="Súmula pós-jogo" onClick={() => setCurrentView('reports')} />
               <NavBtn active={currentView === 'analytics'} icon={<BarChart3 size={18} />} label="Relatórios & Analytics" onClick={() => setCurrentView('analytics')} />
               <NavBtn active={currentView === 'automation'} icon={<Zap size={18} />} label="Automações & Alertas" onClick={() => setCurrentView('automation')} />
               <NavBtn active={currentView === 'media'} icon={<ImageIcon size={18} />} label="Mídia & Galeria" onClick={() => setCurrentView('media')} />
@@ -3500,15 +3684,33 @@ function App() {
               </div>
             </nav>
 
-            <div className="p-6 mt-auto">
+            <div className="p-6 mt-auto space-y-3">
+              {hasSupabase && (
+                <AuthPanel
+                  session={session}
+                  authReady={authReady}
+                  remoteLoading={remoteLoading}
+                  remoteError={remoteError}
+                  useRemote={useRemote}
+                  onSignIn={signIn}
+                  onSignUp={signUp}
+                  onSignOut={signOut}
+                  onReload={loadRemote}
+                />
+              )}
               <div className="flex items-center gap-3 p-3 bg-white/10 rounded-xl">
                 <div className="w-7 h-7 rounded-full bg-white/20 overflow-hidden ring-1 ring-white/30">
-                  <img src={`https://ui-avatars.com/api/?name=${MOCK_USER.name}`} alt="avatar" />
+                  <img src={`https://ui-avatars.com/api/?name=${encodeURIComponent(userForUi.name)}`} alt="avatar" />
                 </div>
                 <div className="flex-1 overflow-hidden">
-                  <p className="text-[11px] font-bold truncate">{MOCK_USER.name}</p>
+                  <p className="text-[11px] font-bold truncate">{userForUi.name}</p>
+                  {useRemote && (
+                    <p className="text-[9px] text-white/50 truncate">{session?.user?.email}</p>
+                  )}
                 </div>
-                <LogOut size={14} className="text-white/40 cursor-pointer hover:text-white transition-colors" />
+                <button type="button" title="Sair" onClick={() => void signOut()} className="p-0 border-0 bg-transparent">
+                  <LogOut size={14} className="text-white/40 cursor-pointer hover:text-white transition-colors" />
+                </button>
               </div>
             </div>
           </motion.aside>
@@ -3553,7 +3755,7 @@ function App() {
             >
               {currentView === 'dashboard' && (
                 <div className="space-y-12">
-                  <GeminiInsights standings={standings} />
+                  <GeminiInsights standings={standings} supabase={supabase} />
                   <DashboardView 
                     clubs={clubs} 
                     players={players} 
@@ -3576,6 +3778,10 @@ function App() {
                 <ChampionshipsView 
                   championship={championship}
                   setChampionship={setChampionship}
+                  supabase={supabase}
+                  useRemote={useRemote}
+                  publicSlug={publicSlug}
+                  onScheduleReload={loadRemote}
                 />
               )}
               {currentView === 'clubs' && (
@@ -3583,6 +3789,7 @@ function App() {
                   clubs={clubs} 
                   setClubs={setClubs} 
                   players={players} 
+                  defaultPresidentId={userForUi.id}
                   onSelectClub={(id) => {
                     setSelectedClubId(id);
                     setCurrentView('club-detail');
@@ -3666,6 +3873,9 @@ function App() {
                   players={players}
                   notifications={notifications}
                   setNotifications={setNotifications}
+                  supabase={supabase}
+                  useRemote={useRemote}
+                  organizationId={organizationId}
                 />
               )}
               {currentView === 'analytics' && (
@@ -3700,6 +3910,14 @@ function App() {
                   players={players}
                   standings={standings}
                   championship={championship}
+                />
+              )}
+              {currentView === 'financial' && (
+                <FinancialDashboardView
+                  supabase={supabase}
+                  session={session}
+                  clubs={clubs}
+                  championshipId={championship.id}
                 />
               )}
               {currentView === 'reports' && (

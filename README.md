@@ -1,283 +1,116 @@
-# CRM Campeonatos — LigaAmadora
+# GESTOR FC — CRM de campeonatos
 
-Sistema de gestão completo para campeonatos de futebol amador. Desenvolvido em React + TypeScript + Tailwind CSS, roda inteiramente no browser (sem backend obrigatório).
-
----
-
-## Sumário
-
-- [Stack](#stack)
-- [Como rodar](#como-rodar)
-- [Seções do sistema](#seções-do-sistema)
-  - [Dashboard](#1-dashboard--painel-geral)
-  - [Campeonatos](#2-campeonatos)
-  - [Clubes & Atletas](#3-clubes--atletas)
-  - [Atletas](#4-atletas)
-  - [Árbitros](#5-árbitros)
-  - [Súmulas Digitais](#6-súmulas-digitais--partidas)
-  - [Campos & Sedes](#7-campos--sedes)
-  - [Documentos & Elegibilidade](#8-documentos--elegibilidade)
-  - [Financeiro](#9-financeiro)
-  - [Relatórios & Analytics](#10-relatórios--analytics)
-  - [Automações & Alertas](#11-automações--alertas)
-  - [Mídia & Galeria](#12-mídia--galeria)
-  - [Portal Público](#13-portal-público)
-
----
+Aplicação web para gestão de campeonatos de futebol amador: clubes, atletas, jogos, súmulas, finanças, árbitros, portal público e modo campo (PWA). O estado pode ser **local (mock)** ou **persistido no [Supabase](https://supabase.com/)** (PostgreSQL, Auth, Row Level Security, Storage e Edge Functions).
 
 ## Stack
 
-| Camada | Tecnologia |
-|--------|-----------|
-| UI | React 19 + TypeScript |
-| Estilos | Tailwind CSS v4 |
-| Gráficos | Recharts |
-| Animações | Motion (Framer Motion) |
-| Ícones | Lucide React |
-| Build | Vite 6 |
+- **React 19** + **TypeScript** + **Vite 6**
+- **Tailwind CSS 4**
+- **Supabase** (`@supabase/supabase-js`): dados, autenticação e funções serverless
+- **Recharts**, **Motion**, **Lucide**
+- **vite-plugin-pwa** (service worker em produção)
 
----
+## Pré-requisitos
 
-## Como rodar
+- [Node.js](https://nodejs.org/) (LTS recomendado)
+- Conta e projeto **Supabase** (opcional, para dados reais na nuvem)
+
+## Configuração
+
+1. Instalar dependências:
+
+   ```bash
+   npm install
+   ```
+
+2. Criar ficheiro de ambiente a partir do exemplo:
+
+   ```bash
+   cp .env.example .env.local
+   ```
+
+3. Preencher variáveis em `.env.local` (ver [.env.example](.env.example)):
+
+   | Variável | Descrição |
+   |----------|-----------|
+   | `VITE_SUPABASE_URL` | URL do projeto Supabase |
+   | `VITE_SUPABASE_ANON_KEY` | Chave anónima (segura no browser) |
+   | `VITE_CHAMPIONSHIP_ID` | ID do campeonato padrão (ex.: `ch1`) |
+   | `VITE_CHECKIN_DEV_SECRET` | Segredo demo para tokens de check-in (alinhado com a Edge `checkin-validate`) |
+   | `GEMINI_API_KEY` | Opcional: insights no cliente / IA |
+
+   **Nunca** commits com secrets reais. Use sempre `.env.local` (ignorado pelo Git).
+
+## Executar em desenvolvimento
 
 ```bash
-npm install
 npm run dev
 ```
 
-Acesse em `http://localhost:3000`.
+Por omissão o servidor escuta na porta **3000** (`0.0.0.0`). Sem Supabase configurado, a app usa dados de demonstração em memória.
 
----
+## Supabase (base de dados e auth)
 
-## Seções do sistema
+- Migrações SQL em [supabase/migrations/](supabase/migrations/).
+- Configuração local da CLI: [supabase/config.toml](supabase/config.toml).
 
-### 1. Dashboard — Painel Geral
+Fluxo típico com [Supabase CLI](https://supabase.com/docs/guides/cli):
 
-Visão executiva do campeonato em andamento.
-
-**Cards de métricas:**
-- Campeonato ativo (nome e temporada)
-- Partidas realizadas vs. total programado
-- Atletas suspensos (com alerta visual, clicável para ir à tela de atletas)
-- Pendências financeiras em aberto
-
-**Classificação geral:** tabela compacta com posição, escudo, pontos, jogos, vitórias, saldo de gols e série de forma dos últimos resultados (V/E/D).
-
-**Próximas partidas:** lista das partidas agendadas com data, hora, local e confronto.
-
----
-
-### 2. Campeonatos
-
-Configuração do campeonato em andamento.
-
-**Dados gerais:**
-- Nome e temporada
-- Tipo de disputa: Pontos Corridos, Grupos ou Mata-Mata
-- Status: Planejamento, Ativo ou Encerrado
-
-**Regras da competição:**
-- Limite de cartões amarelos para suspensão automática
-- Pontuação por vitória e empate
-- Faixa etária mínima e máxima (opcional)
-
----
-
-### 3. Clubes & Atletas
-
-Diretório de todos os clubes inscritos.
-
-**Listagem:** cards com escudo, nome, abreviação, presidente, e indicador de pendência financeira.
-
-**Detalhe do clube:** ao clicar em um clube, abre uma tela dedicada com:
-- Informações completas (endereço, telefone, e-mail, ano de fundação, títulos)
-- Elenco completo do clube com posição, camisa e status
-- Histórico de partidas (resultados e próximos jogos)
-- Estatísticas coletivas (gols, clean sheets, posse média, pontos de disciplina)
-
----
-
-### 4. Atletas
-
-Gestão completa do elenco de todos os clubes.
-
-**Filtros:** busca por nome e filtro por equipe.
-
-**Card do atleta:** foto, posição, nome, camisa, clube, status (Pronto p/ Jogo / Suspenso) e total de gols. O artilheiro recebe badge especial.
-
-**Cadastro / Edição — campos do formulário:**
-
-| Seção | Campos |
-|-------|--------|
-| Foto | Upload de arquivo (JPG/PNG/WEBP) com preview |
-| Identificação | Nome completo, RG, CPF |
-| Filiação | Nome do pai, Nome da mãe |
-| Responsável | Nome do responsável, Número do responsável |
-| Dados esportivos | Nº da camisa, Posição, Clube / Equipe |
-
-**Detalhe do atleta:** estatísticas individuais de partidas, gols, assistências, cartões, nota média e MVP.
-
----
-
-### 5. Árbitros
-
-Cadastro e gestão do quadro de árbitros da liga.
-
-**Níveis:** Prata, Ouro e Elite — com badge visual diferenciado.
-
-**Card do árbitro:** foto, nome, nível, total de partidas apitadas, nota média e status de disponibilidade.
-
-**Detalhe do árbitro:**
-- Histórico de partidas apitadas
-- Avaliações recebidas por clube (nota 1–5 com comentários)
-- Histórico de cartões distribuídos
-
-**Calendário de árbitros:** agenda semanal mostrando quais árbitros estão escalados em quais partidas, permitindo visualizar sobreposições.
-
----
-
-### 6. Súmulas Digitais — Partidas
-
-Ciclo completo de uma partida, do agendamento ao encerramento.
-
-**Listagem de partidas:** cards com confronto, data, hora, local, status (Agendada / Ao Vivo / Encerrada) e placar quando disponível.
-
-**Escalação (pré-jogo):**
-- Seleção de titulares e reservas de cada equipe
-- Validação contra o elenco cadastrado
-- Salvamento da escalação antes da partida
-
-**Centro da Partida (ao vivo):**
-- Cronômetro em tempo real
-- Registro de eventos por minuto: Gol, Assistência, Cartão Amarelo, Cartão Vermelho, Substituição
-- Placar atualizado instantaneamente
-- Seleção do jogador responsável por cada evento
-
-**Encerramento:** ao finalizar, a súmula é gerada com todos os eventos, placar final e status da partida.
-
----
-
-### 7. Campos & Sedes
-
-Gestão dos locais onde as partidas acontecem.
-
-**Card do campo:** nome, endereço, capacidade, instalações disponíveis (ex.: Estacionamento, Refletores, Vestiário), status Ativo/Inativo, e o time mandante vinculado (com logo).
-
-**Time mandante:** cada campo pode ser opcionalmente atrelado a um clube como seu campo principal. Times que jogam apenas fora de casa ficam sem vínculo.
-
-**Detecção de conflitos:** o sistema detecta automaticamente dois jogos agendados no mesmo campo, no mesmo dia e horário, exibindo alerta visual em vermelho.
-
-**Agenda semanal:** visualização em calendário (7 dias) mostrando todos os jogos por campo e dia, com destaque para conflitos de horário.
-
----
-
-### 8. Documentos & Elegibilidade
-
-Central de validação de documentos dos atletas.
-
-**Fila de pendências:** lista de atletas com documentação pendente, mostrando nome, clube e data de envio.
-
-**Ações disponíveis:**
-- **Aprovar:** atleta fica elegível para ser escalado
-- **Rejeitar:** atleta bloqueado com motivo registrado
-
-Atletas com documentação reprovada ou pendente não podem ser incluídos em escalações.
-
----
-
-### 9. Financeiro
-
-Gestão financeira pós-partida e súmula oficial.
-
-**Súmula pós-jogo:** revisão dos eventos registrados durante a partida ao vivo (gols, cartões, substituições).
-
-**Status da súmula:**
-- **Pendente:** aguardando aprovação dos clubes
-- **Aprovada:** resultado homologado
-- **Contestada:** clube registrou contestação com justificativa
-
-**Pendências financeiras:** taxas de inscrição e multas por infrações disciplinares são rastreadas por clube.
-
----
-
-### 10. Relatórios & Analytics
-
-Análises estatísticas visuais da competição.
-
-**Aba Overview — gráficos:**
-
-| Gráfico | O que mostra |
-|---------|-------------|
-| Eficiência Ofensiva | Gols por jogo por equipe (ranking) |
-| Fair Play | Pontuação disciplinar (amarelos + vermelhos × 3) |
-| Poder Ofensivo vs. Defensivo | Scatter: gols pró vs. gols contra |
-| Intervalos de Gol | Em que minuto os gols são marcados (0–15, 15–30, ...) |
-| Artilharia Individual | Top marcadores com barra de progresso |
-
-**Aba Prêmios:**
-- Artilheiro da competição
-- Rei das Assistências
-- Goleiro Menos Vazado
-- Jogador com mais MVPs
-
----
-
-### 11. Automações & Alertas
-
-Motor de notificações automáticas por e-mail.
-
-**Scanner automático:** ao acionar, o sistema varre todos os dados e gera alertas para:
-
-| Tipo de alerta | Gatilho |
-|---------------|---------|
-| Partida Amanhã | Jogo agendado para o dia seguinte |
-| Partida em 7 Dias | Jogo agendado para daqui a uma semana |
-| Escalação Pendente | Partida amanhã sem escalação enviada |
-| Atleta Suspenso | Jogador atingiu limite de cartões |
-| Nova Rodada | Geração de novos confrontos |
-
-**Fila de envio:** cada notificação tem status (Na Fila / Enviado / Falhou), destinatário, assunto e conteúdo. Envio simulado com atualização de status em tempo real.
-
----
-
-### 12. Mídia & Galeria
-
-Repositório centralizado de imagens da liga.
-
-**Categorias:**
-- Banners de campeonato
-- Logos de clubes
-- Fotos de partidas
-- Imagens gerais
-
-**Ações:** upload de novos arquivos, visualização em grid, e associação de cada imagem a uma entidade (campeonato, clube, partida).
-
----
-
-### 13. Portal Público
-
-Visão pública da competição, pensada para ser compartilhada com torcedores.
-
-**Conteúdo exibido:**
-- Classificação geral com pontuação completa
-- Próximas partidas (data, hora, local, confronto)
-- Artilharia — top marcadores com clube e foto
-- Informações do campeonato (nome, temporada, tipo de disputa)
-
-Não exibe dados administrativos (documentos, financeiro, contatos internos).
-
----
-
-## Tipos de dados principais
-
+```bash
+supabase link --project-ref <seu-project-ref>
+supabase db push
 ```
-Championship  — dados e regras do campeonato
-Club          — clubes inscritos
-Player        — atletas (com RG, CPF, filiação, responsável)
-Referee       — árbitros e suas avaliações
-Match         — partidas (escalação, eventos, placar, status)
-Venue         — campos e sedes (com time mandante opcional)
-Standing      — classificação calculada
-Notification  — fila de alertas automáticos
-MediaAsset    — imagens e arquivos de mídia
+
+Após aplicar migrações, crie um utilizador (Auth → e-mail/password). O trigger `handle_new_user` associa novos registos à organização demo `org-1` como `SUPER_ADMIN` (adequado a ambientes de desenvolvimento; ajuste políticas para produção).
+
+No front, faça **login** no painel lateral para carregar e sincronizar dados com o Postgres (debounce de gravação após edições).
+
+## Edge Functions
+
+Código em [supabase/functions/](supabase/functions/). Deploy e secrets via CLI ou painel Supabase.
+
+| Função | Função |
+|--------|--------|
+| `gemini-suggest` | Sugestões com Gemini; grava linhas em `ai_suggestions` (com service role) |
+| `send-notification` | E-mail (ex.: Resend com `RESEND_API_KEY`) |
+| `pix-webhook` | Webhook de pagamento; atualiza `payments` / `invoices` / `clubs` |
+| `checkin-validate` | Valida token e regista check-in em `match_roster` |
+
+Defina no projeto, conforme necessário: `GEMINI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `PAYMENT_WEBHOOK_SECRET`, `CHECKIN_HMAC_SECRET`.
+
+## Scripts npm
+
+| Comando | Descrição |
+|---------|-----------|
+| `npm run dev` | Servidor de desenvolvimento |
+| `npm run build` | Build de produção (+ assets PWA) |
+| `npm run preview` | Pré-visualizar o build |
+| `npm run lint` | Verificação TypeScript (`tsc --noEmit`) |
+
+## Rotas úteis
+
+| Rota | Descrição |
+|------|------------|
+| `/` | CRM principal |
+| `/p/:slug` | Portal público (dados via RPC `get_public_championship`) |
+| `/field/:matchId` | Modo campo simplificado (placar; requer Supabase e sessão com permissões de escrita) |
+
+## Estrutura do código (resumo)
+
+- `src/App.tsx` — UI principal e vistas
+- `src/hooks/useAppData.ts` — Estado global, auth e sync com Supabase
+- `src/api/` — Mapeamentos, fetch do dashboard e snapshot para o servidor
+- `src/lib/supabaseClient.ts` — Cliente Supabase singleton
+- `src/pages/` — Rotas públicas e modo campo
+
+## Build de produção
+
+```bash
+npm run build
 ```
+
+O output fica em `dist/`, com manifest e service worker gerados pelo plugin PWA.
+
+## Licença e origem
+
+Parte do código segue licença **Apache-2.0** (cabeçalhos em ficheiros indicados). O projeto evoluiu a partir de um template exportado do ecossistema Google / AI Studio; a integração Supabase, migrações e documentação deste README são específicas deste repositório.
