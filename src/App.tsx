@@ -2062,14 +2062,21 @@ function PublicPortalView({ clubs, matches, players, standings, championship }: 
                             <td className="px-4 py-5 text-center font-bold text-text-muted text-sm">{s.goalsFor - s.goalsAgainst}</td>
                             <td className="px-6 py-5">
                                <div className="flex justify-center gap-1.5 font-black">
-                                  {s.form.map((res, i) => (
-                                    <div key={i} className={`w-5 h-5 flex items-center justify-center rounded-md text-[9px] text-white ${
-                                      res === 'W' ? 'bg-green-500' : res === 'D' ? 'bg-neutral-400' : 'bg-red-500'
-                                    }`}>
-                                      {res}
-                                    </div>
-                                  ))}
-                                  {s.form.length === 0 && <span className="text-[10px] text-text-muted italic opacity-50">Sem jogos</span>}
+                                  {Array.from({ length: 3 }).map((_, i) => {
+                                    const res = s.form[i];
+                                    if (!res) return (
+                                      <div key={i} className="w-5 h-5 flex items-center justify-center rounded-md text-[9px] font-black bg-neutral-100 text-neutral-400">
+                                        —
+                                      </div>
+                                    );
+                                    return (
+                                      <div key={i} className={`w-5 h-5 flex items-center justify-center rounded-md text-[9px] text-white ${
+                                        res === 'W' ? 'bg-green-500' : res === 'D' ? 'bg-yellow-400' : 'bg-red-500'
+                                      }`}>
+                                        {res === 'W' ? 'V' : res === 'D' ? 'E' : 'D'}
+                                      </div>
+                                    );
+                                  })}
                                </div>
                             </td>
                           </tr>
@@ -3608,9 +3615,9 @@ function App() {
       }
     });
 
-    // Attach form to table records (last 5 games)
+    // Attach form to table records (last 3 games)
     Object.keys(table).forEach(teamId => {
-      table[teamId].form = teamForm[teamId].slice(-5);
+      table[teamId].form = teamForm[teamId].slice(-3);
     });
 
     return Object.values(table).sort((a, b) => b.points - a.points || (b.goalsFor - b.goalsAgainst) - (a.goalsFor - a.goalsAgainst));
@@ -4026,13 +4033,21 @@ function DashboardView({ clubs, players, championship, standings, matches, onSwi
                       <td className="px-6 py-4 text-center text-text-muted">{s.goalsFor - s.goalsAgainst}</td>
                       <td className="px-6 py-4">
                         <div className="flex justify-center gap-1">
-                          {s.form.map((res, i) => (
-                            <div key={i} className={`w-4 h-4 flex items-center justify-center rounded text-[8px] font-black text-white ${
-                              res === 'W' ? 'bg-green-500' : res === 'D' ? 'bg-neutral-400' : 'bg-red-500'
-                            }`}>
-                              {res === 'W' ? 'V' : res === 'D' ? 'E' : 'D'}
-                            </div>
-                          ))}
+                          {Array.from({ length: 3 }).map((_, i) => {
+                            const res = s.form[i];
+                            if (!res) return (
+                              <div key={i} className="w-4 h-4 flex items-center justify-center rounded text-[8px] font-black bg-neutral-100 text-neutral-400">
+                                —
+                              </div>
+                            );
+                            return (
+                              <div key={i} className={`w-4 h-4 flex items-center justify-center rounded text-[8px] font-black text-white ${
+                                res === 'W' ? 'bg-green-500' : res === 'D' ? 'bg-yellow-400' : 'bg-red-500'
+                              }`}>
+                                {res === 'W' ? 'V' : res === 'D' ? 'E' : 'D'}
+                              </div>
+                            );
+                          })}
                         </div>
                       </td>
                     </tr>
