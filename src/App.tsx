@@ -2869,7 +2869,8 @@ function VenuesView({ venues, setVenues, matches, clubs }: { venues: Venue[], se
     contactPhone: '',
     capacity: 0,
     active: true,
-    facilities: [] as string[]
+    facilities: [] as string[],
+    clubId: '' as string | undefined
   });
 
   const handleOpenModal = (venue?: Venue) => {
@@ -2881,7 +2882,8 @@ function VenuesView({ venues, setVenues, matches, clubs }: { venues: Venue[], se
         contactPhone: venue.contactPhone || '',
         capacity: venue.capacity || 0,
         active: venue.active,
-        facilities: venue.facilities || []
+        facilities: venue.facilities || [],
+        clubId: venue.clubId || ''
       });
     } else {
       setEditingVenue(null);
@@ -2891,7 +2893,8 @@ function VenuesView({ venues, setVenues, matches, clubs }: { venues: Venue[], se
         contactPhone: '',
         capacity: 0,
         active: true,
-        facilities: []
+        facilities: [],
+        clubId: ''
       });
     }
     setIsModalOpen(true);
@@ -2899,12 +2902,13 @@ function VenuesView({ venues, setVenues, matches, clubs }: { venues: Venue[], se
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    const dataToSave = { ...formData, clubId: formData.clubId || undefined };
     if (editingVenue) {
-      setVenues(venues.map(v => v.id === editingVenue.id ? { ...v, ...formData } : v));
+      setVenues(venues.map(v => v.id === editingVenue.id ? { ...v, ...dataToSave } : v));
     } else {
       const newVenue: Venue = {
         id: `v-${Date.now()}`,
-        ...formData
+        ...dataToSave
       };
       setVenues([...venues, newVenue]);
     }
@@ -2980,10 +2984,20 @@ function VenuesView({ venues, setVenues, matches, clubs }: { venues: Venue[], se
                 
                 <div className="flex-1">
                   <h4 className="font-bold text-lg mb-1">{venue.name}</h4>
-                  <p className="text-xs text-text-muted mb-4 flex items-center gap-1">
+                  <p className="text-xs text-text-muted mb-2 flex items-center gap-1">
                     <Map size={12} /> {venue.address}
                   </p>
-                  
+                  {venue.clubId && (() => {
+                    const linkedClub = clubs.find(c => c.id === venue.clubId);
+                    return linkedClub ? (
+                      <div className="flex items-center gap-2 mb-4">
+                        <img src={linkedClub.logoUrl} alt={linkedClub.shortName} className="w-5 h-5 object-contain" />
+                        <span className="text-[10px] font-black text-text-muted uppercase tracking-wide">{linkedClub.name}</span>
+                      </div>
+                    ) : null;
+                  })()}
+                  {!venue.clubId && <div className="mb-4" />}
+
                   <div className="flex flex-wrap gap-1.5 mb-6">
                     {venue.facilities?.map(f => (
                       <span key={f} className="text-[10px] font-bold bg-neutral-50 text-text-muted px-2 py-0.5 rounded border border-surface-border">{f}</span>
@@ -3073,6 +3087,15 @@ function VenuesView({ venues, setVenues, matches, clubs }: { venues: Venue[], se
                   <div className="space-y-1">
                     <label className="text-[10px] font-black uppercase text-text-muted tracking-widest pl-1">Endereço Completo</label>
                     <input required className="w-full px-4 py-3 bg-neutral-50 border border-surface-border rounded-2xl focus:outline-none focus:border-accent" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase text-text-muted tracking-widest pl-1">Time Mandante <span className="normal-case font-normal">(opcional)</span></label>
+                    <select className="w-full px-4 py-3 bg-neutral-50 border border-surface-border rounded-2xl focus:outline-none focus:border-accent text-sm" value={formData.clubId || ''} onChange={e => setFormData({...formData, clubId: e.target.value || undefined})}>
+                      <option value="">— Nenhum time vinculado —</option>
+                      {clubs.map(club => (
+                        <option key={club.id} value={club.id}>{club.name}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                      <div className="space-y-1">
@@ -4505,11 +4528,17 @@ function PlayersView({ clubs, players, setPlayers, onSelectPlayer }: { clubs: Cl
   const [searchTerm, setSearchTerm] = useState('');
   const [teamFilter, setTeamFilter] = useState('');
   
-  const [formData, setFormData] = useState({ 
-    name: '', 
-    shirtNumber: 1, 
-    position: 'ATA', 
-    photoUrl: '', 
+  const [formData, setFormData] = useState({
+    name: '',
+    rg: '',
+    cpf: '',
+    fatherName: '',
+    motherName: '',
+    guardianName: '',
+    guardianPhone: '',
+    shirtNumber: 1,
+    position: 'ATA',
+    photoUrl: '',
     clubId: '',
     status: 'ACTIVE' as Player['status']
   });
@@ -4525,21 +4554,33 @@ function PlayersView({ clubs, players, setPlayers, onSelectPlayer }: { clubs: Cl
   const handleOpenModal = (player?: Player) => {
     if (player) {
       setEditingPlayer(player);
-      setFormData({ 
-        name: player.name, 
-        shirtNumber: player.shirtNumber, 
-        position: player.position, 
+      setFormData({
+        name: player.name,
+        rg: player.rg || '',
+        cpf: player.cpf || '',
+        fatherName: player.fatherName || '',
+        motherName: player.motherName || '',
+        guardianName: player.guardianName || '',
+        guardianPhone: player.guardianPhone || '',
+        shirtNumber: player.shirtNumber,
+        position: player.position,
         photoUrl: player.photoUrl,
         clubId: player.clubId,
         status: player.status
       });
     } else {
       setEditingPlayer(null);
-      setFormData({ 
-        name: '', 
-        shirtNumber: 1, 
-        position: 'ATA', 
-        photoUrl: '', 
+      setFormData({
+        name: '',
+        rg: '',
+        cpf: '',
+        fatherName: '',
+        motherName: '',
+        guardianName: '',
+        guardianPhone: '',
+        shirtNumber: 1,
+        position: 'ATA',
+        photoUrl: '',
         clubId: clubs[0]?.id || '',
         status: 'ACTIVE'
       });
@@ -4654,52 +4695,128 @@ function PlayersView({ clubs, players, setPlayers, onSelectPlayer }: { clubs: Cl
         {isModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsModalOpen(false)} className="absolute inset-0 bg-primary/40 backdrop-blur-sm" />
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl p-8">
-              <div className="absolute top-0 right-0 p-4">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
+              {/* Header fixo */}
+              <div className="flex items-center justify-between px-8 pt-7 pb-4 border-b border-surface-border flex-shrink-0">
+                <h3 className="text-lg font-bold text-primary">{editingPlayer ? 'Editar Atleta' : 'Novo Atleta'}</h3>
                 <button onClick={() => setIsModalOpen(false)} className="text-text-muted hover:text-primary"><X size={20} /></button>
               </div>
-              <h3 className="text-lg font-bold mb-6 text-primary">{editingPlayer ? 'Editar Atleta' : 'Novo Atleta'}</h3>
-              
-              <form onSubmit={handleSave} className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Nome do Atleta</label>
-                  <input required className="w-full px-4 py-2 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
-                </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Camisa</label>
-                    <input type="number" required className="w-full px-4 py-2 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent" value={formData.shirtNumber} onChange={e => setFormData({ ...formData, shirtNumber: parseInt(e.target.value) })} />
+              {/* Corpo com scroll */}
+              <form onSubmit={handleSave} className="overflow-y-auto flex-1 px-8 py-6 space-y-5">
+
+                {/* Foto */}
+                <div className="flex items-center gap-5">
+                  <div className="w-20 h-20 rounded-xl border-2 border-dashed border-surface-border bg-neutral-50 flex items-center justify-center overflow-hidden flex-shrink-0">
+                    {formData.photoUrl
+                      ? <img src={formData.photoUrl} className="w-full h-full object-cover" />
+                      : <span className="text-[10px] font-bold text-text-muted uppercase text-center leading-tight px-1">Sem foto</span>
+                    }
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Posição</label>
-                    <select className="w-full px-4 py-2 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent" value={formData.position} onChange={e => setFormData({ ...formData, position: e.target.value })}>
-                      <option value="GL">Goleiro (GL)</option>
-                      <option value="LAT">Lateral (LAT)</option>
-                      <option value="ZAG">Zagueiro (ZAG)</option>
-                      <option value="VOL">Volante (VOL)</option>
-                      <option value="MEI">Meia (MEI)</option>
-                      <option value="ATA">Atacante (ATA)</option>
-                    </select>
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Foto do Atleta</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="w-full text-xs text-text-muted file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-[10px] file:font-bold file:uppercase file:bg-neutral-100 file:text-text-muted hover:file:bg-neutral-200 cursor-pointer"
+                      onChange={e => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = ev => setFormData({ ...formData, photoUrl: ev.target?.result as string });
+                        reader.readAsDataURL(file);
+                      }}
+                    />
+                    <p className="text-[10px] text-text-muted pl-1">JPG, PNG ou WEBP</p>
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Clube / Equipe</label>
-                  <select required className="w-full px-4 py-2 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent" value={formData.clubId} onChange={e => setFormData({ ...formData, clubId: e.target.value })}>
-                    <option value="">Selecione um clube</option>
-                    {clubs.map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
+                {/* Identificação */}
+                <div>
+                  <p className="text-[10px] font-black uppercase text-text-muted tracking-widest mb-3 border-b border-surface-border pb-1">Identificação</p>
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Nome Completo</label>
+                      <input required className="w-full px-4 py-2 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent text-sm" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">RG</label>
+                        <input className="w-full px-4 py-2 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent text-sm" placeholder="00.000.000-0" value={formData.rg} onChange={e => setFormData({ ...formData, rg: e.target.value })} />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">CPF</label>
+                        <input className="w-full px-4 py-2 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent text-sm" placeholder="000.000.000-00" value={formData.cpf} onChange={e => setFormData({ ...formData, cpf: e.target.value })} />
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">URL da Foto</label>
-                  <input className="w-full px-4 py-2 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent text-xs" value={formData.photoUrl} onChange={e => setFormData({ ...formData, photoUrl: e.target.value })} />
+                {/* Filiação */}
+                <div>
+                  <p className="text-[10px] font-black uppercase text-text-muted tracking-widest mb-3 border-b border-surface-border pb-1">Filiação</p>
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Nome do Pai</label>
+                      <input className="w-full px-4 py-2 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent text-sm" value={formData.fatherName} onChange={e => setFormData({ ...formData, fatherName: e.target.value })} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Nome da Mãe</label>
+                      <input className="w-full px-4 py-2 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent text-sm" value={formData.motherName} onChange={e => setFormData({ ...formData, motherName: e.target.value })} />
+                    </div>
+                  </div>
                 </div>
 
-                <div className="pt-6">
+                {/* Responsável */}
+                <div>
+                  <p className="text-[10px] font-black uppercase text-text-muted tracking-widest mb-3 border-b border-surface-border pb-1">Responsável</p>
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Nome do Responsável</label>
+                      <input className="w-full px-4 py-2 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent text-sm" value={formData.guardianName} onChange={e => setFormData({ ...formData, guardianName: e.target.value })} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Número do Responsável</label>
+                      <input type="tel" className="w-full px-4 py-2 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent text-sm" placeholder="(00) 00000-0000" value={formData.guardianPhone} onChange={e => setFormData({ ...formData, guardianPhone: e.target.value })} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Dados Esportivos */}
+                <div>
+                  <p className="text-[10px] font-black uppercase text-text-muted tracking-widest mb-3 border-b border-surface-border pb-1">Dados Esportivos</p>
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Nº Camisa</label>
+                        <input type="number" required className="w-full px-4 py-2 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent text-sm" value={formData.shirtNumber} onChange={e => setFormData({ ...formData, shirtNumber: parseInt(e.target.value) })} />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Posição</label>
+                        <select className="w-full px-4 py-2 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent text-sm" value={formData.position} onChange={e => setFormData({ ...formData, position: e.target.value })}>
+                          <option value="GL">Goleiro (GL)</option>
+                          <option value="LAT">Lateral (LAT)</option>
+                          <option value="ZAG">Zagueiro (ZAG)</option>
+                          <option value="VOL">Volante (VOL)</option>
+                          <option value="MEI">Meia (MEI)</option>
+                          <option value="ATA">Atacante (ATA)</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Clube / Equipe</label>
+                      <select required className="w-full px-4 py-2 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent text-sm" value={formData.clubId} onChange={e => setFormData({ ...formData, clubId: e.target.value })}>
+                        <option value="">Selecione um clube</option>
+                        {clubs.map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="pt-2 pb-2">
                   <button type="submit" className="w-full btn-primary h-12">Salvar Atleta</button>
                 </div>
               </form>
