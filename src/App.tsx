@@ -83,7 +83,8 @@ import { GoogleGenAI } from "@google/genai";
 import { useAppData } from './hooks/useAppData';
 import { AuthPanel } from './components/AuthPanel';
 import { FinancialDashboardView } from './features/FinancialDashboardView';
-import { Match, Championship, Standing, MatchEvent, Club, Player, Referee, RefereeRating, Lineup, Notification, NotificationType, MediaAsset, Venue } from './types';
+import { Match, Championship, Standing, MatchEvent, Club, Player, Referee, RefereeRating, Lineup, Notification, NotificationType, MediaAsset, Venue, ChampionshipBundle } from './types';
+import { MOCK_CHAMPIONSHIP, MOCK_CLUBS, MOCK_PLAYERS, MOCK_MATCHES, MOCK_VENUES, MOCK_REFEREES, MOCK_RATINGS } from './mockData';
 
 // Types for navigation
 type View = 'dashboard' | 'championships' | 'clubs' | 'players' | 'matches' | 'reports' | 'financial' | 'club-detail' | 'referees' | 'lineup' | 'player-detail' | 'automation' | 'public-portal' | 'media' | 'analytics' | 'venues' | 'eligibility';
@@ -1189,44 +1190,136 @@ function AdvancedAnalyticsView({
 }
 
 function ChampionshipsView({
-  championship,
+  allBundles,
+  activeChampId,
+  onSelectChampionship,
+  onCreateChampionship,
   setChampionship,
   supabase,
   useRemote,
   publicSlug,
   onScheduleReload,
 }: {
-  championship: Championship;
+  allBundles: ChampionshipBundle[];
+  activeChampId: string;
+  onSelectChampionship: (id: string) => void;
+  onCreateChampionship: (bundle: ChampionshipBundle) => void;
   setChampionship: React.Dispatch<React.SetStateAction<Championship>>;
   supabase: SupabaseClient | null;
   useRemote: boolean;
   publicSlug: string | null;
   onScheduleReload: () => Promise<void>;
 }) {
+  const championship = allBundles.find(b => b.championship.id === activeChampId)!.championship;
   const [schedMsg, setSchedMsg] = useState<string | null>(null);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+
+  // New championship form state
+  const [form, setForm] = useState({
+    name: '', season: new Date().getFullYear().toString(),
+    type: 'POINTS_CORRIDOS' as Championship['type'],
+    status: 'PLANNING' as Championship['status'],
+    yellowCardLimit: 3, pointsPerWin: 3, pointsPerDraw: 1,
+    sourceId: '', copyClubs: true, copyPlayers: false,
+    copyReferees: false, copyVenues: false,
+  });
+
+  const handleCreate = (e: React.FormEvent) => {
+    e.preventDefault();
+    const source = allBundles.find(b => b.championship.id === form.sourceId);
+    const newBundle: ChampionshipBundle = {
+      championship: {
+        id: `ch-${Date.now()}`,
+        name: form.name, season: form.season,
+        type: form.type, status: form.status,
+        rules: { yellowCardLimit: form.yellowCardLimit, pointsPerWin: form.pointsPerWin, pointsPerDraw: form.pointsPerDraw },
+      },
+      clubs:      form.sourceId && form.copyClubs    && source ? source.clubs    : [],
+      players:    form.sourceId && form.copyPlayers  && source ? source.players  : [],
+      referees:   form.sourceId && form.copyReferees && source ? source.referees : [],
+      venues:     form.sourceId && form.copyVenues   && source ? source.venues   : [],
+      matches: [], ratings: [], matchEvents: [], notifications: [], mediaAssets: [],
+    };
+    onCreateChampionship(newBundle);
+    setIsCreateOpen(false);
+    setForm({ name: '', season: new Date().getFullYear().toString(), type: 'POINTS_CORRIDOS', status: 'PLANNING', yellowCardLimit: 3, pointsPerWin: 3, pointsPerDraw: 1, sourceId: '', copyClubs: true, copyPlayers: false, copyReferees: false, copyVenues: false });
+  };
 
   const runRpc = async (name: string, args: Record<string, unknown>) => {
-    if (!supabase || !useRemote) {
-      setSchedMsg('Faça login com Supabase para usar o agendador.');
-      return;
-    }
+    if (!supabase || !useRemote) { setSchedMsg('Faça login com Supabase para usar o agendador.'); return; }
     setSchedMsg(null);
     const { data, error } = await supabase.rpc(name, args);
-    if (error) {
-      setSchedMsg(error.message);
-      return;
-    }
+    if (error) { setSchedMsg(error.message); return; }
     setSchedMsg(typeof data === 'number' ? `${name}: ${data} linha(s) afetada(s).` : `${name}: ok.`);
     await onScheduleReload();
   };
 
+  const statusLabel = (s: Championship['status']) =>
+    s === 'ACTIVE' ? 'Ativo' : s === 'PLANNING' ? 'Planejamento' : 'Encerrado';
+  const typeLabel = (t: Championship['type']) =>
+    t === 'POINTS_CORRIDOS' ? 'Pts Corridos' : t === 'GROUPS' ? 'Grupos' : 'Mata-Mata';
+  const statusColor = (s: Championship['status']) =>
+    s === 'ACTIVE' ? 'bg-green-100 text-green-700' : s === 'PLANNING' ? 'bg-yellow-100 text-yellow-700' : 'bg-neutral-200 text-text-muted';
+
   return (
     <div className="space-y-8 pb-12">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-black text-primary uppercase leading-none">Gestão do Campeonato</h2>
-          <p className="text-[11px] font-bold text-text-muted mt-1 uppercase tracking-widest">Configurações Gerais e Identidade Visual</p>
+          <h2 className="text-2xl font-black text-primary uppercase leading-none">Campeonatos</h2>
+          <p className="text-[11px] font-bold text-text-muted mt-1 uppercase tracking-widest">Gerencie e alterne entre edições da sua liga</p>
         </div>
+        <button onClick={() => setIsCreateOpen(true)} className="btn-primary flex items-center gap-2">
+          <Plus size={14} /> Novo Campeonato
+        </button>
+      </div>
+
+      {/* Championship cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        {allBundles.map(b => {
+          const c = b.championship;
+          const isActive = c.id === activeChampId;
+          return (
+            <button
+              key={c.id}
+              onClick={() => onSelectChampionship(c.id)}
+              className={`text-left p-6 rounded-3xl border-2 transition-all hover:-translate-y-1 ${
+                isActive
+                  ? 'border-accent bg-accent/5 shadow-lg shadow-accent/10'
+                  : 'border-surface-border bg-white hover:border-accent/40 shadow-sm'
+              }`}
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div className={`p-2.5 rounded-xl ${isActive ? 'bg-accent text-white' : 'bg-neutral-100 text-primary'}`}>
+                  <Trophy size={18} />
+                </div>
+                <div className="flex flex-col items-end gap-1.5">
+                  <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${statusColor(c.status)}`}>
+                    {statusLabel(c.status)}
+                  </span>
+                  {isActive && (
+                    <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-accent text-white flex items-center gap-1">
+                      <div className="w-1 h-1 bg-white rounded-full animate-pulse" /> ATIVO
+                    </span>
+                  )}
+                </div>
+              </div>
+              <h3 className="font-black text-base text-primary leading-tight mb-1">{c.name}</h3>
+              <p className="text-[11px] text-text-muted font-bold uppercase tracking-widest mb-4">Temporada {c.season}</p>
+              <div className="flex items-center justify-between text-[10px] font-black text-text-muted uppercase tracking-wide border-t border-surface-border pt-4">
+                <span>{typeLabel(c.type)}</span>
+                <span>{b.clubs.length} times · {b.matches.length} jogos</span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Divider */}
+      <div className="flex items-center gap-4">
+        <div className="flex-1 border-t border-surface-border" />
+        <span className="text-[10px] font-black uppercase text-text-muted tracking-widest">Campeonato Ativo — {championship.name}</span>
+        <div className="flex-1 border-t border-surface-border" />
       </div>
 
       {publicSlug && (
@@ -1237,12 +1330,8 @@ function ChampionshipsView({
               {typeof window !== 'undefined' ? `${window.location.origin}/p/${publicSlug}` : `/p/${publicSlug}`}
             </p>
           </div>
-          <a
-            href={`/p/${publicSlug}`}
-            target="_blank"
-            rel="noreferrer"
-            className="text-xs font-black uppercase text-accent border border-accent/30 px-4 py-2 rounded-xl hover:bg-accent/5"
-          >
+          <a href={`/p/${publicSlug}`} target="_blank" rel="noreferrer"
+            className="text-xs font-black uppercase text-accent border border-accent/30 px-4 py-2 rounded-xl hover:bg-accent/5">
             Abrir em nova aba
           </a>
         </div>
@@ -1250,135 +1339,183 @@ function ChampionshipsView({
 
       <div className="card-utility p-6 space-y-4">
         <h3 className="text-sm font-black uppercase text-primary tracking-tight">Calendário & chaves (Postgres)</h3>
-        <p className="text-xs text-text-muted">
-          Geração de turno e mata-mata via funções SQL. Conflitos listados por clube/data/hora.
-        </p>
         {schedMsg && <p className="text-xs text-accent font-bold">{schedMsg}</p>}
         <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            className="btn-outline text-xs font-bold uppercase"
-            onClick={() =>
-              void runRpc('generate_round_robin', { p_championship_id: championship.id, p_rounds: 1 })
-            }
-          >
+          <button type="button" className="btn-outline text-xs font-bold uppercase"
+            onClick={() => void runRpc('generate_round_robin', { p_championship_id: championship.id, p_rounds: 1 })}>
             Rodada (todos contra todos)
           </button>
-          <button
-            type="button"
-            className="btn-outline text-xs font-bold uppercase"
+          <button type="button" className="btn-outline text-xs font-bold uppercase"
             onClick={async () => {
               if (!supabase || !useRemote) return;
-              const { data, error } = await supabase.rpc('detect_schedule_conflicts', {
-                p_championship_id: championship.id,
-              });
+              const { data, error } = await supabase.rpc('detect_schedule_conflicts', { p_championship_id: championship.id });
               if (error) setSchedMsg(error.message);
               else setSchedMsg(`Conflitos: ${JSON.stringify(data ?? [])}`);
-            }}
-          >
+            }}>
             Detectar conflitos
           </button>
-          <button
-            type="button"
-            className="btn-primary text-xs font-bold uppercase"
-            onClick={() =>
-              void runRpc('generate_knockout_from_standings', {
-                p_championship_id: championship.id,
-                p_pairs: 2,
-              })
-            }
-          >
+          <button type="button" className="btn-primary text-xs font-bold uppercase"
+            onClick={() => void runRpc('generate_knockout_from_standings', { p_championship_id: championship.id, p_pairs: 2 })}>
             Chave mata-mata (demo)
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-8">
-           <div className="card-utility bg-white overflow-hidden p-0">
-              <div className="h-64 bg-neutral-100 flex items-center justify-center relative overflow-hidden group border-b border-surface-border">
-                 {championship.bannerUrl ? (
-                   <img src={championship.bannerUrl} className="w-full h-full object-cover" />
-                 ) : (
-                   <div className="text-center">
-                      <ImageIcon className="mx-auto text-neutral-300 mb-2 opacity-50" size={48} />
-                      <p className="text-xs font-black uppercase text-text-muted tracking-widest">Banner Oficial da Temporada</p>
-                   </div>
-                 )}
-                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <FileUpload 
-                      onUpload={(url) => setChampionship({ ...championship, bannerUrl: url })} 
-                      label="Alterar Banner" 
-                      className="bg-white px-6 py-2.5 rounded-2xl text-xs font-black uppercase text-primary shadow-xl" 
-                    />
-                 </div>
+        <div className="lg:col-span-2">
+          <div className="card-utility bg-white overflow-hidden p-0">
+            <div className="h-48 bg-neutral-100 flex items-center justify-center relative overflow-hidden group border-b border-surface-border">
+              {championship.bannerUrl
+                ? <img src={championship.bannerUrl} className="w-full h-full object-cover" />
+                : <div className="text-center"><ImageIcon className="mx-auto text-neutral-300 mb-2 opacity-50" size={40} /><p className="text-xs font-black uppercase text-text-muted tracking-widest">Banner Oficial</p></div>
+              }
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <FileUpload onUpload={(url) => setChampionship({ ...championship, bannerUrl: url })} label="Alterar Banner" className="bg-white px-6 py-2.5 rounded-2xl text-xs font-black uppercase text-primary shadow-xl" />
               </div>
-              <div className="p-8">
-                 <div className="flex items-center justify-between mb-8">
-                    <div>
-                       <h3 className="text-2xl font-black text-primary uppercase leading-none tracking-tighter">{championship.name}</h3>
-                       <p className="text-[11px] font-bold text-text-muted mt-2 uppercase tracking-widest bg-neutral-100 w-fit px-3 py-1 rounded-lg">Temporada {championship.season}</p>
-                    </div>
-                    <span className="flex items-center gap-2 bg-green-100 text-green-700 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-[0.2em]">
-                       <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-                       EM ANDAMENTO
-                    </span>
-                 </div>
-                 
-                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-8 pt-6 border-t border-surface-border">
-                    <div>
-                       <p className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-2">Formato</p>
-                       <p className="text-sm font-bold text-primary">{championship.type.replace('_', ' ')}</p>
-                    </div>
-                    <div>
-                       <p className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-2">Yellow Card Cap</p>
-                       <p className="text-sm font-bold text-primary">{championship.rules.yellowCardLimit} cartões</p>
-                    </div>
-                    <div>
-                       <p className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-2">Vitória</p>
-                       <p className="text-sm font-bold text-primary">{championship.rules.pointsPerWin} pts</p>
-                    </div>
-                 </div>
+            </div>
+            <div className="p-8">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="text-xl font-black text-primary uppercase leading-none tracking-tighter">{championship.name}</h3>
+                  <p className="text-[11px] font-bold text-text-muted mt-2 uppercase tracking-widest bg-neutral-100 w-fit px-3 py-1 rounded-lg">Temporada {championship.season}</p>
+                </div>
+                <span className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] ${statusColor(championship.status)}`}>
+                  {championship.status === 'ACTIVE' && <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />}
+                  {statusLabel(championship.status)}
+                </span>
               </div>
-           </div>
+              <div className="grid grid-cols-3 gap-6 pt-6 border-t border-surface-border">
+                <div><p className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-1">Formato</p><p className="text-sm font-bold text-primary">{typeLabel(championship.type)}</p></div>
+                <div><p className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-1">Cartões p/ suspensão</p><p className="text-sm font-bold text-primary">{championship.rules.yellowCardLimit} amarelos</p></div>
+                <div><p className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-1">Pontuação</p><p className="text-sm font-bold text-primary">{championship.rules.pointsPerWin}V / {championship.rules.pointsPerDraw}E</p></div>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="space-y-6">
-           <div className="card-utility p-8 bg-neutral-900 text-white border-none shadow-2xl relative overflow-hidden">
-              <div className="absolute top-0 right-0 p-8 opacity-5">
-                 <Trophy size={100} />
+        <div>
+          <div className="card-utility p-8 bg-neutral-900 text-white border-none shadow-2xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-8 opacity-5"><Trophy size={100} /></div>
+            <div className="relative z-10">
+              <h4 className="text-[11px] font-black text-white/40 uppercase mb-6 tracking-[0.3em]">Health Check</h4>
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-lg ${championship.bannerUrl ? 'bg-green-500/10 text-green-400' : 'bg-white/5 text-white/20'}`}><ImageIcon size={16} /></div>
+                    <span className="text-xs font-bold uppercase tracking-tight">Banner</span>
+                  </div>
+                  <CheckCircle size={14} className={championship.bannerUrl ? 'text-green-400' : 'text-white/20'} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-green-500/10 text-green-400"><Shield size={16} /></div>
+                    <span className="text-xs font-bold uppercase tracking-tight">Logo Federativa</span>
+                  </div>
+                  <CheckCircle size={14} className="text-green-400" />
+                </div>
               </div>
-              <div className="relative z-10">
-                 <h4 className="text-[11px] font-black text-white/40 uppercase mb-6 tracking-[0.3em]">Health Check Identity</h4>
-                 <div className="space-y-6">
-                    <div className="flex items-center justify-between group">
-                       <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-lg ${championship.bannerUrl ? 'bg-green-500/10 text-green-400' : 'bg-white/5 text-white/20'}`}>
-                             <ImageIcon size={16} />
-                          </div>
-                          <span className="text-xs font-bold uppercase tracking-tight">Banner da Temporada</span>
-                       </div>
-                       <CheckCircle size={14} className={championship.bannerUrl ? 'text-green-400' : 'text-white/20'} />
-                    </div>
-                    <div className="flex items-center justify-between">
-                       <div className="flex items-center gap-3">
-                          <div className="p-2 rounded-lg bg-green-500/10 text-green-400">
-                             <Shield size={16} />
-                          </div>
-                          <span className="text-xs font-bold uppercase tracking-tight">Logo Federativa</span>
-                       </div>
-                       <CheckCircle size={14} className="text-green-400" />
-                    </div>
-                 </div>
-                 <div className="mt-10 p-5 bg-white/5 rounded-2xl border border-white/10">
-                    <p className="text-[10px] text-white/50 leading-relaxed font-medium italic">
-                       A identidade visual fortalece a marca da sua liga e atrai patrocinadores de alto nível.
-                    </p>
-                 </div>
-              </div>
-           </div>
+            </div>
+          </div>
         </div>
       </div>
+
+      {/* Modal Novo Campeonato */}
+      <AnimatePresence>
+        {isCreateOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-primary/40 backdrop-blur-sm" onClick={() => setIsCreateOpen(false)} />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl flex flex-col max-h-[90vh]">
+              <div className="flex items-center justify-between px-8 pt-7 pb-4 border-b border-surface-border flex-shrink-0">
+                <h3 className="text-lg font-black text-primary uppercase">Novo Campeonato</h3>
+                <button onClick={() => setIsCreateOpen(false)} className="text-text-muted hover:text-primary"><X size={20} /></button>
+              </div>
+              <form onSubmit={handleCreate} className="overflow-y-auto flex-1 px-8 py-6 space-y-5">
+                {/* Identidade */}
+                <div>
+                  <p className="text-[10px] font-black uppercase text-text-muted tracking-widest mb-3 border-b border-surface-border pb-1">Identidade</p>
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Nome do Campeonato</label>
+                      <input required className="w-full px-4 py-2.5 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent text-sm" placeholder="Ex: Copa Regional 2027" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Temporada</label>
+                        <input required className="w-full px-4 py-2.5 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent text-sm" value={form.season} onChange={e => setForm({...form, season: e.target.value})} />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Status</label>
+                        <select className="w-full px-4 py-2.5 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent text-sm" value={form.status} onChange={e => setForm({...form, status: e.target.value as Championship['status']})}>
+                          <option value="PLANNING">Planejamento</option>
+                          <option value="ACTIVE">Ativo</option>
+                          <option value="FINISHED">Encerrado</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Formato</label>
+                      <select className="w-full px-4 py-2.5 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent text-sm" value={form.type} onChange={e => setForm({...form, type: e.target.value as Championship['type']})}>
+                        <option value="POINTS_CORRIDOS">Pontos Corridos</option>
+                        <option value="GROUPS">Fase de Grupos</option>
+                        <option value="KNOCKOUT">Mata-Mata</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Regras */}
+                <div>
+                  <p className="text-[10px] font-black uppercase text-text-muted tracking-widest mb-3 border-b border-surface-border pb-1">Regras</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Amarelos p/ susp.</label>
+                      <input type="number" min={1} className="w-full px-4 py-2.5 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent text-sm" value={form.yellowCardLimit} onChange={e => setForm({...form, yellowCardLimit: +e.target.value})} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Pts por vitória</label>
+                      <input type="number" min={1} className="w-full px-4 py-2.5 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent text-sm" value={form.pointsPerWin} onChange={e => setForm({...form, pointsPerWin: +e.target.value})} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Pts por empate</label>
+                      <input type="number" min={0} className="w-full px-4 py-2.5 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent text-sm" value={form.pointsPerDraw} onChange={e => setForm({...form, pointsPerDraw: +e.target.value})} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Importar de */}
+                {allBundles.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-black uppercase text-text-muted tracking-widest mb-3 border-b border-surface-border pb-1">Importar dados de outro campeonato <span className="normal-case font-normal">(opcional)</span></p>
+                    <div className="space-y-3">
+                      <select className="w-full px-4 py-2.5 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent text-sm" value={form.sourceId} onChange={e => setForm({...form, sourceId: e.target.value})}>
+                        <option value="">— Começar do zero —</option>
+                        {allBundles.map(b => (
+                          <option key={b.championship.id} value={b.championship.id}>{b.championship.name} ({b.championship.season})</option>
+                        ))}
+                      </select>
+                      {form.sourceId && (
+                        <div className="grid grid-cols-2 gap-2">
+                          {([['copyClubs','Times'], ['copyPlayers','Atletas'], ['copyReferees','Árbitros'], ['copyVenues','Campos']] as const).map(([key, label]) => (
+                            <label key={key} className="flex items-center gap-2 p-3 bg-neutral-50 border border-surface-border rounded-xl cursor-pointer hover:border-accent/40 transition-colors">
+                              <input type="checkbox" className="w-4 h-4 text-accent rounded" checked={form[key]} onChange={e => setForm({...form, [key]: e.target.checked})} />
+                              <span className="text-[12px] font-bold text-primary">{label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-2 pb-2">
+                  <button type="submit" className="w-full btn-primary h-12">Criar Campeonato</button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -3525,31 +3662,63 @@ function App() {
     publicSlug,
     organizationId,
     userForUi,
-    clubs,
-    setClubs,
-    players,
-    setPlayers,
-    referees,
-    setReferees,
-    ratings,
-    setRatings,
-    matches,
-    setMatches,
-    venues,
-    setVenues,
-    matchEvents,
-    setMatchEvents,
-    notifications,
-    setNotifications,
-    mediaAssets,
-    setMediaAssets,
-    championship,
-    setChampionship,
     loadRemote,
     signIn,
     signUp,
     signOut,
   } = useAppData();
+
+  // ── Multi-championship bundle state ──────────────────────────────────────
+  const [allBundles, setAllBundles] = useState<ChampionshipBundle[]>([{
+    championship: MOCK_CHAMPIONSHIP,
+    clubs: MOCK_CLUBS,
+    players: MOCK_PLAYERS,
+    matches: MOCK_MATCHES,
+    venues: MOCK_VENUES,
+    referees: MOCK_REFEREES,
+    ratings: MOCK_RATINGS,
+    matchEvents: [],
+    notifications: [],
+    mediaAssets: [],
+  }]);
+  const [activeChampId, setActiveChampId] = useState<string>(MOCK_CHAMPIONSHIP.id);
+
+  const activeBundle = allBundles.find(b => b.championship.id === activeChampId) ?? allBundles[0];
+  const championship  = activeBundle.championship;
+  const clubs         = activeBundle.clubs;
+  const players       = activeBundle.players;
+  const matches       = activeBundle.matches;
+  const venues        = activeBundle.venues;
+  const referees      = activeBundle.referees;
+  const ratings       = activeBundle.ratings;
+  const matchEvents   = activeBundle.matchEvents;
+  const notifications = activeBundle.notifications;
+  const mediaAssets   = activeBundle.mediaAssets;
+
+  const _patchBundle = (id: string, patch: Partial<ChampionshipBundle>) =>
+    setAllBundles(prev => prev.map(b => b.championship.id === id ? { ...b, ...patch } : b));
+
+  const setChampionship: React.Dispatch<React.SetStateAction<Championship>> = (a) =>
+    _patchBundle(activeChampId, { championship: typeof a === 'function' ? a(championship) : a });
+  const setClubs: React.Dispatch<React.SetStateAction<Club[]>> = (a) =>
+    _patchBundle(activeChampId, { clubs: typeof a === 'function' ? a(clubs) : a });
+  const setPlayers: React.Dispatch<React.SetStateAction<Player[]>> = (a) =>
+    _patchBundle(activeChampId, { players: typeof a === 'function' ? a(players) : a });
+  const setMatches: React.Dispatch<React.SetStateAction<Match[]>> = (a) =>
+    _patchBundle(activeChampId, { matches: typeof a === 'function' ? a(matches) : a });
+  const setVenues: React.Dispatch<React.SetStateAction<Venue[]>> = (a) =>
+    _patchBundle(activeChampId, { venues: typeof a === 'function' ? a(venues) : a });
+  const setReferees: React.Dispatch<React.SetStateAction<Referee[]>> = (a) =>
+    _patchBundle(activeChampId, { referees: typeof a === 'function' ? a(referees) : a });
+  const setRatings: React.Dispatch<React.SetStateAction<RefereeRating[]>> = (a) =>
+    _patchBundle(activeChampId, { ratings: typeof a === 'function' ? a(ratings) : a });
+  const setMatchEvents: React.Dispatch<React.SetStateAction<MatchEvent[]>> = (a) =>
+    _patchBundle(activeChampId, { matchEvents: typeof a === 'function' ? a(matchEvents) : a });
+  const setNotifications: React.Dispatch<React.SetStateAction<Notification[]>> = (a) =>
+    _patchBundle(activeChampId, { notifications: typeof a === 'function' ? a(notifications) : a });
+  const setMediaAssets: React.Dispatch<React.SetStateAction<MediaAsset[]>> = (a) =>
+    _patchBundle(activeChampId, { mediaAssets: typeof a === 'function' ? a(mediaAssets) : a });
+  // ─────────────────────────────────────────────────────────────────────────
 
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [selectedClubId, setSelectedClubId] = useState<string | null>(null);
@@ -3782,8 +3951,14 @@ function App() {
                 </div>
               )}
               {currentView === 'championships' && (
-                <ChampionshipsView 
-                  championship={championship}
+                <ChampionshipsView
+                  allBundles={allBundles}
+                  activeChampId={activeChampId}
+                  onSelectChampionship={(id) => setActiveChampId(id)}
+                  onCreateChampionship={(bundle) => {
+                    setAllBundles(prev => [...prev, bundle]);
+                    setActiveChampId(bundle.championship.id);
+                  }}
                   setChampionship={setChampionship}
                   supabase={supabase}
                   useRemote={useRemote}

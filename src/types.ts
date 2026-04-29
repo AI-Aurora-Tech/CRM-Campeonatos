@@ -224,3 +224,16 @@ export interface FeeDefinition {
   amountCents: number;
   category: string;
 }
+
+export interface ChampionshipBundle {
+  championship: Championship;
+  clubs: Club[];
+  players: Player[];
+  matches: Match[];
+  venues: Venue[];
+  referees: Referee[];
+  ratings: RefereeRating[];
+  matchEvents: MatchEvent[];
+  notifications: Notification[];
+  mediaAssets: MediaAsset[];
+}
