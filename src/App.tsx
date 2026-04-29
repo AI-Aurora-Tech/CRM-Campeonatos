@@ -2735,7 +2735,8 @@ function VenuesView({ venues, setVenues, matches, clubs }: { venues: Venue[], se
     contactPhone: '',
     capacity: 0,
     active: true,
-    facilities: [] as string[]
+    facilities: [] as string[],
+    clubId: '' as string | undefined
   });
 
   const handleOpenModal = (venue?: Venue) => {
@@ -2747,7 +2748,8 @@ function VenuesView({ venues, setVenues, matches, clubs }: { venues: Venue[], se
         contactPhone: venue.contactPhone || '',
         capacity: venue.capacity || 0,
         active: venue.active,
-        facilities: venue.facilities || []
+        facilities: venue.facilities || [],
+        clubId: venue.clubId || ''
       });
     } else {
       setEditingVenue(null);
@@ -2757,7 +2759,8 @@ function VenuesView({ venues, setVenues, matches, clubs }: { venues: Venue[], se
         contactPhone: '',
         capacity: 0,
         active: true,
-        facilities: []
+        facilities: [],
+        clubId: ''
       });
     }
     setIsModalOpen(true);
@@ -2765,12 +2768,13 @@ function VenuesView({ venues, setVenues, matches, clubs }: { venues: Venue[], se
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    const dataToSave = { ...formData, clubId: formData.clubId || undefined };
     if (editingVenue) {
-      setVenues(venues.map(v => v.id === editingVenue.id ? { ...v, ...formData } : v));
+      setVenues(venues.map(v => v.id === editingVenue.id ? { ...v, ...dataToSave } : v));
     } else {
       const newVenue: Venue = {
         id: `v-${Date.now()}`,
-        ...formData
+        ...dataToSave
       };
       setVenues([...venues, newVenue]);
     }
@@ -2846,10 +2850,20 @@ function VenuesView({ venues, setVenues, matches, clubs }: { venues: Venue[], se
                 
                 <div className="flex-1">
                   <h4 className="font-bold text-lg mb-1">{venue.name}</h4>
-                  <p className="text-xs text-text-muted mb-4 flex items-center gap-1">
+                  <p className="text-xs text-text-muted mb-2 flex items-center gap-1">
                     <Map size={12} /> {venue.address}
                   </p>
-                  
+                  {venue.clubId && (() => {
+                    const linkedClub = clubs.find(c => c.id === venue.clubId);
+                    return linkedClub ? (
+                      <div className="flex items-center gap-2 mb-4">
+                        <img src={linkedClub.logoUrl} alt={linkedClub.shortName} className="w-5 h-5 object-contain" />
+                        <span className="text-[10px] font-black text-text-muted uppercase tracking-wide">{linkedClub.name}</span>
+                      </div>
+                    ) : null;
+                  })()}
+                  {!venue.clubId && <div className="mb-4" />}
+
                   <div className="flex flex-wrap gap-1.5 mb-6">
                     {venue.facilities?.map(f => (
                       <span key={f} className="text-[10px] font-bold bg-neutral-50 text-text-muted px-2 py-0.5 rounded border border-surface-border">{f}</span>
@@ -2939,6 +2953,15 @@ function VenuesView({ venues, setVenues, matches, clubs }: { venues: Venue[], se
                   <div className="space-y-1">
                     <label className="text-[10px] font-black uppercase text-text-muted tracking-widest pl-1">Endereço Completo</label>
                     <input required className="w-full px-4 py-3 bg-neutral-50 border border-surface-border rounded-2xl focus:outline-none focus:border-accent" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase text-text-muted tracking-widest pl-1">Time Mandante <span className="normal-case font-normal">(opcional)</span></label>
+                    <select className="w-full px-4 py-3 bg-neutral-50 border border-surface-border rounded-2xl focus:outline-none focus:border-accent text-sm" value={formData.clubId || ''} onChange={e => setFormData({...formData, clubId: e.target.value || undefined})}>
+                      <option value="">— Nenhum time vinculado —</option>
+                      {clubs.map(club => (
+                        <option key={club.id} value={club.id}>{club.name}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                      <div className="space-y-1">

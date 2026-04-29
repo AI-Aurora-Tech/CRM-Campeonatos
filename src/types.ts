@@ -109,6 +109,7 @@ export interface Venue {
   capacity?: number;
   facilities?: string[];
   active: boolean;
+  clubId?: string;
 }
 
 export interface Match {
