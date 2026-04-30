@@ -141,7 +141,9 @@ export interface Match {
   };
   currentMinute?: number;
   events?: MatchEvent[];
-  gallery?: string[]; // URLs or DataURLs
+  gallery?: string[];
+  mvpPlayerId?: string;
+  minutesPlayed?: { [playerId: string]: number };
 }
 
 export interface MediaAsset {

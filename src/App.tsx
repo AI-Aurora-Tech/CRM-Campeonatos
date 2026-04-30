@@ -61,7 +61,9 @@ import {
   AlertTriangle,
   Radio,
   Wallet,
-  ClipboardList
+  ClipboardList,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -427,6 +429,11 @@ function ClubDetailView({ club, players, matches, clubs, standings, championship
   // ── Top scorer ───────────────────────────────────────────────────────────
   const topScorer = [...clubPlayers].sort((a, b) => (b.stats?.goals ?? 0) - (a.stats?.goals ?? 0))[0];
 
+  // ── Minutes played (sum across all finished matches) ─────────────────────
+  const finishedWithMinutes = clubMatches.filter(m => m.status === 'FINISHED' && m.minutesPlayed);
+  const playerMinutes = (pid: string) =>
+    finishedWithMinutes.reduce((sum, m) => sum + (m.minutesPlayed?.[pid] ?? 0), 0);
+
   // ── Matches ──────────────────────────────────────────────────────────────
   const recentMatches   = [...clubMatches].filter(m => m.status === 'FINISHED').sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3);
   const upcomingMatches = [...clubMatches].filter(m => m.status === 'SCHEDULED').sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3);
@@ -561,12 +568,20 @@ function ClubDetailView({ club, players, matches, clubs, standings, championship
                       )}
                     </div>
                   </div>
-                  {p.stats && (
-                    <div className="text-right shrink-0">
-                      <p className="text-[12px] font-black text-accent">{p.stats.rating.toFixed(1)}</p>
-                      <p className="text-[8px] font-black text-text-muted uppercase">Média</p>
-                    </div>
-                  )}
+                  <div className="text-right shrink-0 space-y-1">
+                    {p.stats && (
+                      <div>
+                        <p className="text-[12px] font-black text-accent">{p.stats.rating.toFixed(1)}</p>
+                        <p className="text-[8px] font-black text-text-muted uppercase">Média</p>
+                      </div>
+                    )}
+                    {playerMinutes(p.id) > 0 && (
+                      <div className="flex items-center gap-0.5 justify-end">
+                        <Clock size={8} className="text-text-muted" />
+                        <span className="text-[9px] font-black text-text-muted">{playerMinutes(p.id)}'</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
               {filteredPlayers.length === 0 && (
@@ -1753,7 +1768,7 @@ function MatchCenterView({
   clubs: Club[], 
   players: Player[], 
   onUpdateMatch: (m: Match) => void,
-  onFinishMatch: (m: Match, events: MatchEvent[]) => void,
+  onFinishMatch: (m: Match, events: MatchEvent[], mvpPlayerId?: string) => void,
   onExit: () => void 
 }) {
   const [currentMinute, setCurrentMinute] = useState(match.currentMinute || 0);
@@ -1761,15 +1776,22 @@ function MatchCenterView({
   const [homeScore, setHomeScore] = useState(match.score?.home || 0);
   const [awayScore, setAwayScore] = useState(match.score?.away || 0);
   const [isPaused, setIsPaused] = useState(true);
+  const [showMvpPicker, setShowMvpPicker] = useState(false);
+  const [selectedMvp, setSelectedMvp] = useState<string | null>(null);
+  const [pendingSubstitution, setPendingSubstitution] = useState<{
+    teamId: string;
+    step: 'out' | 'in';
+    playerOutId?: string;
+    minute: number;
+  } | null>(null);
 
   const homeClub = clubs.find(c => c.id === match.homeTeamId);
   const awayClub = clubs.find(c => c.id === match.awayTeamId);
 
-  // Lineup setup — done inline at match start, no pre-confirmation required
   const [localLineups, setLocalLineups] = useState<NonNullable<Match['lineups']>>(
     match.lineups || { home: { starters: [], substitutes: [] }, away: { starters: [], substitutes: [] } }
   );
-  const [showLineupSetup, setShowLineupSetup] = useState(!match.lineups);
+  const [lineupConfirmed, setLineupConfirmed] = useState(!!match.lineups);
 
   const homePlayers = players.filter(p => p.clubId === match.homeTeamId);
   const awayPlayers = players.filter(p => p.clubId === match.awayTeamId);
@@ -1778,25 +1800,20 @@ function MatchCenterView({
     setLocalLineups(prev => {
       const lineup = prev[team];
       if (lineup.starters.includes(playerId)) {
-        return { ...prev, [team]: { starters: lineup.starters.filter(id => id !== playerId), substitutes: [...lineup.substitutes, playerId] } };
-      } else if (lineup.substitutes.includes(playerId)) {
-        return { ...prev, [team]: { ...lineup, substitutes: lineup.substitutes.filter(id => id !== playerId) } };
+        return { ...prev, [team]: { ...lineup, starters: lineup.starters.filter(id => id !== playerId) } };
       } else {
-        return { ...prev, [team]: { starters: [...lineup.starters, playerId], substitutes: lineup.substitutes } };
+        return { ...prev, [team]: { ...lineup, starters: [...lineup.starters, playerId] } };
       }
     });
   };
 
-  const getPlayerRole = (team: 'home' | 'away', playerId: string): 'starter' | 'substitute' | 'none' => {
-    const lineup = localLineups[team];
-    if (lineup.starters.includes(playerId)) return 'starter';
-    if (lineup.substitutes.includes(playerId)) return 'substitute';
-    return 'none';
+  const getPlayerRole = (team: 'home' | 'away', playerId: string): 'starter' | 'none' => {
+    return localLineups[team].starters.includes(playerId) ? 'starter' : 'none';
   };
 
   const confirmLineup = () => {
     onUpdateMatch({ ...match, lineups: localLineups });
-    setShowLineupSetup(false);
+    setLineupConfirmed(true);
     setIsPaused(false);
   };
 
@@ -1844,15 +1861,30 @@ function MatchCenterView({
       if (teamId === match.homeTeamId) setHomeScore(s => s + 1);
       else setAwayScore(s => s + 1);
     }
+    if (type === 'SUBSTITUTION' && playerId && playerInId) {
+      const subTeam = teamId === match.homeTeamId ? 'home' : 'away';
+      setLocalLineups(prev => {
+        const curr = prev[subTeam];
+        return {
+          ...prev,
+          [subTeam]: {
+            ...curr,
+            starters: [...curr.starters.filter(id => id !== playerId), playerInId],
+          },
+        };
+      });
+    }
     setPendingEvent(null);
+    setPendingSubstitution(null);
   };
 
   const renderPlayerPicker = () => {
     if (!pendingEvent) return null;
     const team = pendingEvent.teamId === match.homeTeamId ? 'home' : 'away';
-    const lineup = localLineups[team];
     const teamName = team === 'home' ? homeClub?.shortName : awayClub?.shortName;
-    const teamPlayers = players.filter(p => [...lineup.starters, ...lineup.substitutes].includes(p.id));
+    const teamPlayers = players
+      .filter(p => localLineups[team].starters.includes(p.id))
+      .sort((a, b) => (a.shirtNumber ?? 0) - (b.shirtNumber ?? 0));
 
     return (
       <div className="fixed inset-0 bg-primary/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
@@ -1885,80 +1917,181 @@ function MatchCenterView({
     );
   };
 
-  const renderLineupSetup = () => {
-    if (!showLineupSetup) return null;
+  const renderSubstitutionPicker = () => {
+    if (!pendingSubstitution) return null;
+    const team = pendingSubstitution.teamId === match.homeTeamId ? 'home' : 'away';
+    const club = team === 'home' ? homeClub : awayClub;
 
-    const renderTeamColumn = (team: 'home' | 'away', teamPlayers: Player[], club: Club | undefined) => (
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-surface-border">
-          <img src={club?.logoUrl} className="w-8 h-8 object-contain rounded" />
-          <div>
-            <p className="text-[11px] font-black uppercase text-primary">{club?.name}</p>
-            <p className="text-[10px] text-text-muted">
-              {localLineups[team].starters.length} titulares · {localLineups[team].substitutes.length} reservas
-            </p>
-          </div>
+    const renderPlayerBtn = (p: Player, selected: boolean, onClick: () => void) => (
+      <button
+        key={p.id}
+        onClick={onClick}
+        className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border transition-all text-left ${
+          selected
+            ? 'bg-accent text-white border-accent shadow-md'
+            : 'bg-neutral-50 border-surface-border hover:border-accent/40 hover:bg-accent/5'
+        }`}
+      >
+        <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-[12px] font-black flex-shrink-0 ${selected ? 'bg-white/20 text-white' : 'bg-neutral-200 text-neutral-600'}`}>
+          {p.shirtNumber ?? '?'}
+        </span>
+        <span className="text-[11px] font-bold truncate">{p.name}</span>
+      </button>
+    );
+
+    if (pendingSubstitution.step === 'out') {
+      const onField = players
+        .filter(p => localLineups[team].starters.includes(p.id))
+        .sort((a, b) => (a.shirtNumber ?? 0) - (b.shirtNumber ?? 0));
+      return (
+        <div className="fixed inset-0 bg-primary/70 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-surface-border flex flex-col max-h-[85vh]">
+            <div className="p-5 border-b border-surface-border bg-neutral-50 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-black text-primary uppercase flex items-center gap-2">
+                  <ArrowDown size={16} className="text-red-500" /> Quem SAI?
+                </h3>
+                <p className="text-[10px] text-text-muted mt-0.5 flex items-center gap-1">
+                  <img src={club?.logoUrl} className="w-3 h-3 object-contain" /> {club?.shortName} · {pendingSubstitution.minute}'
+                </p>
+              </div>
+              <button onClick={() => setPendingSubstitution(null)} className="p-2 bg-neutral-100 rounded-xl hover:bg-neutral-200"><X size={16} /></button>
+            </div>
+            <div className="p-5 grid grid-cols-2 gap-2 overflow-y-auto custom-scrollbar">
+              {onField.map(p => renderPlayerBtn(p, false, () =>
+                setPendingSubstitution({ ...pendingSubstitution, step: 'in', playerOutId: p.id })
+              ))}
+            </div>
+          </motion.div>
         </div>
-        <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1 custom-scrollbar">
-          {teamPlayers.length === 0 && (
-            <p className="text-[11px] text-text-muted italic p-4 text-center">Nenhum atleta cadastrado neste time.</p>
-          )}
-          {teamPlayers.map(p => {
-            const role = getPlayerRole(team, p.id);
-            return (
-              <button
-                key={p.id}
-                onClick={() => togglePlayer(team, p.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all text-left ${
-                  role === 'starter'
-                    ? 'bg-green-50 border-green-200 text-green-800'
-                    : role === 'substitute'
-                    ? 'bg-amber-50 border-amber-200 text-amber-800'
-                    : 'bg-neutral-50 border-surface-border text-text-muted hover:border-accent/40 hover:bg-accent/5'
-                }`}
-              >
-                <img src={p.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(p.name)}`} className="w-8 h-8 rounded-lg object-cover flex-shrink-0 border border-white/60" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-[11px] font-black truncate">{p.name}</p>
-                  <p className="text-[9px] font-bold uppercase opacity-60">#{p.shirtNumber} · {p.position}</p>
-                </div>
-                <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full flex-shrink-0 ${
-                  role === 'starter' ? 'bg-green-200 text-green-800' :
-                  role === 'substitute' ? 'bg-amber-200 text-amber-800' :
-                  'bg-neutral-200 text-neutral-500'
-                }`}>
-                  {role === 'starter' ? 'T' : role === 'substitute' ? 'R' : '—'}
-                </span>
-              </button>
-            );
-          })}
+      );
+    }
+
+    // step === 'in'
+    const alreadyIn = new Set(localLineups[team].starters);
+    const available = players
+      .filter(p => p.clubId === pendingSubstitution.teamId && !alreadyIn.has(p.id))
+      .sort((a, b) => (a.shirtNumber ?? 0) - (b.shirtNumber ?? 0));
+    const playerOut = players.find(p => p.id === pendingSubstitution.playerOutId);
+    return (
+      <div className="fixed inset-0 bg-primary/70 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+        <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-surface-border flex flex-col max-h-[85vh]">
+          <div className="p-5 border-b border-surface-border bg-neutral-50 flex items-center justify-between">
+            <div>
+              <h3 className="text-base font-black text-primary uppercase flex items-center gap-2">
+                <ArrowUp size={16} className="text-green-600" /> Quem ENTRA?
+              </h3>
+              <p className="text-[10px] text-text-muted mt-0.5 flex items-center gap-1">
+                Saindo: <span className="font-black text-red-600">#{playerOut?.shirtNumber} {playerOut?.name}</span> · {pendingSubstitution.minute}'
+              </p>
+            </div>
+            <button onClick={() => setPendingSubstitution({ ...pendingSubstitution, step: 'out', playerOutId: undefined })} className="p-2 bg-neutral-100 rounded-xl hover:bg-neutral-200"><ArrowLeft size={16} /></button>
+          </div>
+          <div className="p-5 grid grid-cols-2 gap-2 overflow-y-auto custom-scrollbar">
+            {available.length === 0 && (
+              <p className="col-span-2 text-center text-[11px] text-text-muted italic py-6">Nenhum jogador disponível para entrar.</p>
+            )}
+            {available.map(p => renderPlayerBtn(p, false, () =>
+              addEvent('SUBSTITUTION', pendingSubstitution.teamId, pendingSubstitution.playerOutId!, p.id)
+            ))}
+          </div>
+        </motion.div>
+      </div>
+    );
+  };
+
+  const renderMvpPicker = () => {
+    if (!showMvpPicker) return null;
+
+    const originalStarters = [
+      ...(match.lineups?.home.starters ?? localLineups.home.starters),
+      ...(match.lineups?.away.starters ?? localLineups.away.starters),
+    ];
+    const subIns = events
+      .filter(e => e.type === 'SUBSTITUTION' && e.playerInId)
+      .map(e => e.playerInId!);
+    const participatingIds = [...new Set([...originalStarters, ...subIns])];
+    const participatingPlayers = players.filter(p => participatingIds.includes(p.id));
+    const homePart = participatingPlayers.filter(p => p.clubId === match.homeTeamId);
+    const awayPart = participatingPlayers.filter(p => p.clubId === match.awayTeamId);
+
+    const renderTeamGroup = (teamPlayers: Player[], club: Club | undefined) => (
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <img src={club?.logoUrl} className="w-5 h-5 object-contain" />
+          <span className="text-[10px] font-black uppercase text-text-muted">{club?.shortName}</span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          {teamPlayers.sort((a, b) => (a.shirtNumber ?? 0) - (b.shirtNumber ?? 0)).map(p => (
+            <button
+              key={p.id}
+              onClick={() => setSelectedMvp(prev => prev === p.id ? null : p.id)}
+              className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border transition-all text-left ${
+                selectedMvp === p.id
+                  ? 'bg-accent text-white border-accent shadow-lg shadow-accent/25'
+                  : 'bg-neutral-50 border-surface-border hover:border-accent/40 hover:bg-accent/5'
+              }`}
+            >
+              <span className={`w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-black flex-shrink-0 ${
+                selectedMvp === p.id ? 'bg-white/20 text-white' : 'bg-neutral-200 text-neutral-600'
+              }`}>{p.shirtNumber ?? '?'}</span>
+              <span className="text-[11px] font-bold truncate">{p.name}</span>
+            </button>
+          ))}
         </div>
       </div>
     );
 
     return (
       <div className="fixed inset-0 bg-primary/70 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-        <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl overflow-hidden border border-surface-border flex flex-col max-h-[95vh]">
-          <div className="p-6 border-b border-surface-border bg-neutral-50 flex items-center justify-between flex-shrink-0">
+        <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden border border-surface-border flex flex-col max-h-[90vh]">
+          <div className="p-6 border-b border-surface-border bg-neutral-50 flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-lg font-black text-primary uppercase tracking-tight">Escalação da Partida</h2>
-              <p className="text-[10px] text-text-muted mt-0.5">Toque no jogador para definir: <span className="font-black text-green-700">T</span> = Titular · <span className="font-black text-amber-700">R</span> = Reserva · <span className="font-black text-neutral-500">—</span> = Fora</p>
+              <h2 className="text-lg font-black text-primary uppercase tracking-tight flex items-center gap-2">
+                <Star size={18} className="text-amber-500" /> Melhor Jogador da Partida
+              </h2>
+              <p className="text-[10px] text-text-muted mt-0.5">Selecione o MVP ou encerre sem indicar.</p>
             </div>
+            <button onClick={() => setShowMvpPicker(false)} className="p-2 bg-neutral-100 rounded-xl hover:bg-neutral-200 transition-colors flex-shrink-0">
+              <X size={16} />
+            </button>
           </div>
 
-          <div className="p-6 flex gap-6 overflow-hidden flex-1">
-            {renderTeamColumn('home', homePlayers, homeClub)}
-            <div className="w-px bg-surface-border flex-shrink-0" />
-            {renderTeamColumn('away', awayPlayers, awayClub)}
+          <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1">
+            {participatingPlayers.length === 0 ? (
+              <p className="text-[12px] text-text-muted italic text-center py-8">Nenhum jogador na escalação confirmada.</p>
+            ) : (
+              <>
+                {homePart.length > 0 && renderTeamGroup(homePart, homeClub)}
+                {awayPart.length > 0 && renderTeamGroup(awayPart, awayClub)}
+              </>
+            )}
           </div>
+
+          {selectedMvp && (() => {
+            const mvp = players.find(p => p.id === selectedMvp);
+            return (
+              <div className="px-6 py-3 bg-amber-50 border-t border-amber-200 flex items-center gap-3">
+                <Star size={14} className="text-amber-500 flex-shrink-0" />
+                <span className="text-[11px] font-black text-amber-800 truncate">
+                  #{mvp?.shirtNumber} {mvp?.name}
+                </span>
+              </div>
+            );
+          })()}
 
           <div className="p-5 border-t border-surface-border bg-neutral-50 flex justify-end gap-3 flex-shrink-0">
-            <button onClick={onExit} className="btn-outline text-sm">Cancelar</button>
             <button
-              onClick={confirmLineup}
-              className="px-8 py-2.5 bg-accent text-white font-black text-xs uppercase tracking-widest rounded-xl hover:brightness-110 transition-all shadow-lg shadow-accent/20 flex items-center gap-2"
+              onClick={() => onFinishMatch(match, events, undefined)}
+              className="btn-outline text-xs"
             >
-              <Radio size={14} className="animate-pulse" /> Apitar! Iniciar Partida
+              Encerrar sem MVP
+            </button>
+            <button
+              onClick={() => onFinishMatch(match, events, selectedMvp ?? undefined)}
+              className="px-8 py-2.5 bg-accent text-white font-black text-xs uppercase tracking-widest rounded-xl hover:brightness-110 transition-all shadow-lg shadow-accent/20"
+            >
+              Confirmar e Encerrar
             </button>
           </div>
         </motion.div>
@@ -1966,10 +2099,86 @@ function MatchCenterView({
     );
   };
 
+  const renderLineupTeamColumn = (team: 'home' | 'away', teamPlayers: Player[], club: Club | undefined) => (
+    <div className="flex-1 min-w-0">
+      <div className="flex items-center gap-3 mb-4 pb-3 border-b border-surface-border">
+        <img src={club?.logoUrl} className="w-8 h-8 object-contain rounded" />
+        <div>
+          <p className="text-[11px] font-black uppercase text-primary">{club?.name}</p>
+          <p className="text-[10px] text-text-muted">
+            {localLineups[team].starters.length} titulares selecionados
+          </p>
+        </div>
+      </div>
+      <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
+        {teamPlayers.length === 0 && (
+          <p className="text-[11px] text-text-muted italic p-4 text-center">Nenhum atleta cadastrado neste time.</p>
+        )}
+        {teamPlayers.sort((a, b) => (a.shirtNumber ?? 0) - (b.shirtNumber ?? 0)).map(p => {
+          const role = getPlayerRole(team, p.id);
+          return (
+            <button
+              key={p.id}
+              onClick={() => togglePlayer(team, p.id)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all text-left ${
+                role === 'starter'
+                  ? 'bg-green-50 border-green-200 text-green-800'
+                  : 'bg-neutral-50 border-surface-border text-text-muted hover:border-accent/40 hover:bg-accent/5'
+              }`}
+            >
+              <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-[12px] font-black flex-shrink-0 ${
+                role === 'starter' ? 'bg-green-200 text-green-800' : 'bg-neutral-200 text-neutral-500'
+              }`}>
+                {p.shirtNumber ?? '?'}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-black truncate">{p.name}</p>
+                <p className="text-[9px] font-bold uppercase opacity-60">{p.position}</p>
+              </div>
+              <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full flex-shrink-0 ${
+                role === 'starter' ? 'bg-green-200 text-green-800' : 'bg-neutral-200 text-neutral-500'
+              }`}>
+                {role === 'starter' ? 'T' : '—'}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
   return (
     <div className="max-w-5xl mx-auto space-y-8 pb-20">
-      {renderLineupSetup()}
       {renderPlayerPicker()}
+      {renderSubstitutionPicker()}
+      {renderMvpPicker()}
+
+      {/* Inline lineup selection — shown before the coordinator confirms */}
+      {!lineupConfirmed && (
+        <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="card-utility overflow-hidden border-2 border-accent/40">
+          <div className="p-5 bg-accent/5 border-b border-surface-border flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-black text-primary uppercase tracking-tight">Escalação da Partida</h2>
+              <p className="text-[10px] text-text-muted mt-0.5">
+                Toque no jogador: <span className="font-black text-green-700">T</span> = Titular ·{' '}
+                <span className="font-black text-amber-700">R</span> = Reserva ·{' '}
+                <span className="font-black text-neutral-500">—</span> = Fora
+              </p>
+            </div>
+            <button
+              onClick={confirmLineup}
+              className="px-6 py-2.5 bg-accent text-white font-black text-xs uppercase tracking-widest rounded-xl hover:brightness-110 transition-all shadow-lg shadow-accent/20 flex items-center gap-2"
+            >
+              <Radio size={13} className="animate-pulse" /> Apitar! Iniciar Partida
+            </button>
+          </div>
+          <div className="p-6 flex gap-6 overflow-hidden">
+            {renderLineupTeamColumn('home', homePlayers, homeClub)}
+            <div className="w-px bg-surface-border flex-shrink-0" />
+            {renderLineupTeamColumn('away', awayPlayers, awayClub)}
+          </div>
+        </motion.div>
+      )}
       {/* Real-time Header */}
       <div className="bg-neutral-900 rounded-[2.5rem] p-10 text-white relative overflow-hidden shadow-2xl border border-white/5">
         <div className="absolute top-0 right-0 w-96 h-96 bg-accent/20 rounded-full blur-[100px] -translate-y-1/2 translate-x-1/2" />
@@ -2015,12 +2224,8 @@ function MatchCenterView({
             >
               {isPaused ? 'Retomar Relógio' : 'Pausar Relógio'}
             </button>
-            <button 
-              onClick={() => {
-                if(confirm('Encerrar partida e gerar súmula final?')) {
-                  onFinishMatch(match, events);
-                }
-              }}
+            <button
+              onClick={() => { setSelectedMvp(null); setShowMvpPicker(true); }}
               className="px-8 py-3 bg-accent text-white rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all shadow-lg shadow-accent/20 hover:scale-105 active:scale-95"
             >
               Finalizar Jogo
@@ -2069,7 +2274,7 @@ function MatchCenterView({
                     <div className="w-3 h-4 bg-red-600 rounded-sm" />
                     <span className="text-[10px] font-black uppercase">Vermelho</span>
                   </button>
-                  <button onClick={() => setPendingEvent({ type: 'SUBSTITUTION', teamId: match.homeTeamId })} className="p-4 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-2xl border border-blue-100 flex flex-col items-center gap-2 transition-all">
+                  <button onClick={() => setPendingSubstitution({ teamId: match.homeTeamId, step: 'out', minute: currentMinute })} className="p-4 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-2xl border border-blue-100 flex flex-col items-center gap-2 transition-all">
                     <RefreshCw size={18} />
                     <span className="text-[10px] font-black uppercase">Troca</span>
                   </button>
@@ -2096,7 +2301,7 @@ function MatchCenterView({
                     <div className="w-3 h-4 bg-red-600 rounded-sm" />
                     <span className="text-[10px] font-black uppercase">Vermelho</span>
                   </button>
-                  <button onClick={() => setPendingEvent({ type: 'SUBSTITUTION', teamId: match.awayTeamId })} className="p-4 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-2xl border border-blue-100 flex flex-col items-center gap-2 transition-all">
+                  <button onClick={() => setPendingSubstitution({ teamId: match.awayTeamId, step: 'out', minute: currentMinute })} className="p-4 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-2xl border border-blue-100 flex flex-col items-center gap-2 transition-all">
                     <RefreshCw size={18} />
                     <span className="text-[10px] font-black uppercase">Troca</span>
                   </button>
@@ -2142,9 +2347,27 @@ function MatchCenterView({
                            ev.type === 'SUBSTITUTION' ? 'SUBSTITUIÇÃO' : 
                            ev.type === 'YELLOW_CARD' ? 'CARTÃO AMARELO' : 'CARTÃO VERMELHO'}
                         </p>
-                        <p className="font-bold text-sm text-primary">
-                          {clubs.find(c => c.id === ev.teamId)?.shortName} • {ev.playerId ? players.find(p => p.id === ev.playerId)?.name : 'Lance em análise'}
-                        </p>
+                        {ev.type === 'SUBSTITUTION' ? (
+                          <div className="space-y-0.5">
+                            <p className="text-[11px] font-bold text-primary flex items-center gap-1">
+                              <ArrowDown size={10} className="text-red-500 flex-shrink-0" />
+                              {players.find(p => p.id === ev.playerId)?.name ?? '—'}
+                              <span className="text-text-muted font-normal">#{players.find(p => p.id === ev.playerId)?.shirtNumber}</span>
+                            </p>
+                            {ev.playerInId && (
+                              <p className="text-[11px] font-bold text-primary flex items-center gap-1">
+                                <ArrowUp size={10} className="text-green-600 flex-shrink-0" />
+                                {players.find(p => p.id === ev.playerInId)?.name ?? '—'}
+                                <span className="text-text-muted font-normal">#{players.find(p => p.id === ev.playerInId)?.shirtNumber}</span>
+                              </p>
+                            )}
+                            <p className="text-[9px] text-text-muted">{clubs.find(c => c.id === ev.teamId)?.shortName}</p>
+                          </div>
+                        ) : (
+                          <p className="font-bold text-sm text-primary">
+                            {clubs.find(c => c.id === ev.teamId)?.shortName} • {ev.playerId ? players.find(p => p.id === ev.playerId)?.name : 'Lance em análise'}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -4139,13 +4362,39 @@ function App() {
     setMatches(prev => prev.map(m => m.id === updatedMatch.id ? updatedMatch : m));
   };
 
-  const handleFinishMatch = (match: Match, events: MatchEvent[]) => {
-    setMatches(prev => prev.map(m => m.id === match.id ? { 
-      ...match, 
-      status: 'FINISHED', 
+  const handleFinishMatch = (match: Match, events: MatchEvent[], mvpPlayerId?: string) => {
+    const finalMinute = match.currentMinute ?? 90;
+    const minutesPlayed: { [playerId: string]: number } = {};
+    const lineups = match.lineups;
+    if (lineups) {
+      const subEvents = events.filter(e => e.type === 'SUBSTITUTION');
+      (['home', 'away'] as const).forEach(side => {
+        const teamId = side === 'home' ? match.homeTeamId : match.awayTeamId;
+        lineups[side].starters.forEach(pid => {
+          const subOut = subEvents.find(e => e.teamId === teamId && e.playerId === pid);
+          minutesPlayed[pid] = subOut ? subOut.minute : finalMinute;
+        });
+        subEvents.filter(e => e.teamId === teamId && e.playerInId).forEach(subIn => {
+          const pid = subIn.playerInId!;
+          const laterOut = subEvents.find(e => e.teamId === teamId && e.playerId === pid && e.minute > subIn.minute);
+          minutesPlayed[pid] = laterOut ? laterOut.minute - subIn.minute : finalMinute - subIn.minute;
+        });
+      });
+    }
+    setMatches(prev => prev.map(m => m.id === match.id ? {
+      ...match,
+      status: 'FINISHED',
       reportStatus: 'PENDING',
-      events 
+      events,
+      mvpPlayerId,
+      minutesPlayed,
     } : m));
+    if (mvpPlayerId) {
+      setPlayers(prev => prev.map(p => p.id === mvpPlayerId ? {
+        ...p,
+        stats: { ...p.stats, matches: p.stats?.matches ?? 0, goals: p.stats?.goals ?? 0, assists: p.stats?.assists ?? 0, yellowCards: p.stats?.yellowCards ?? 0, redCards: p.stats?.redCards ?? 0, rating: p.stats?.rating ?? 0, mvpCount: (p.stats?.mvpCount ?? 0) + 1 },
+      } : p));
+    }
     setCurrentView('matches');
   };
 
