@@ -2825,10 +2825,16 @@ function LeaderBreakdown({
   const sideLabel = (m: Match) => m.homeTeamId === leader.clubId ? 'Casa' : 'Fora';
   const matchById = (id: string) => matches.find(m => m.id === id);
 
+  // Fonte unificada de eventos: top-level matchEvents + match.events de cada partida
+  const allEvents: MatchEvent[] = [
+    ...matchEvents,
+    ...matches.flatMap(m => (m.events ?? []).map(e => ({ ...e, matchId: e.matchId || m.id }))),
+  ];
+
   // ── Chuteira de Ouro ── partidas com gols do líder ───────────────────────
   if (award === 'GOLDEN_BOOT') {
     const goalsByMatch = new Map<string, number>();
-    matchEvents.filter(e => e.playerId === leader.id && e.type === 'GOAL').forEach(e => {
+    allEvents.filter(e => e.playerId === leader.id && e.type === 'GOAL').forEach(e => {
       goalsByMatch.set(e.matchId, (goalsByMatch.get(e.matchId) ?? 0) + 1);
     });
     if (goalsByMatch.size === 0) {
@@ -2855,7 +2861,7 @@ function LeaderBreakdown({
   // ── Chuteira de Prata ── partidas com assistências do líder ──────────────
   if (award === 'SILVER_BOOT') {
     const assistsByMatch = new Map<string, number>();
-    matchEvents.filter(e => e.playerId === leader.id && e.type === 'ASSIST').forEach(e => {
+    allEvents.filter(e => e.playerId === leader.id && e.type === 'ASSIST').forEach(e => {
       assistsByMatch.set(e.matchId, (assistsByMatch.get(e.matchId) ?? 0) + 1);
     });
     if (assistsByMatch.size === 0) {
@@ -2922,7 +2928,7 @@ function LeaderBreakdown({
       <BreakdownTable
         head={['Data', 'Adversário', 'Local', 'Placar', 'Marcador']}
         rows={mvpMatches.map(m => {
-          const goalsThis = matchEvents.filter(e => e.matchId === m.id && e.playerId === leader.id && e.type === 'GOAL').length;
+          const goalsThis = allEvents.filter(e => e.matchId === m.id && e.playerId === leader.id && e.type === 'GOAL').length;
           return [
             m.date,
             opponentOf(m)?.shortName ?? '—',
@@ -2939,7 +2945,7 @@ function LeaderBreakdown({
 
   // ── Fair Play ── cartões do defensor por partida ────────────────────────
   if (award === 'FAIR_PLAY') {
-    const cardEvents = matchEvents.filter(e => e.playerId === leader.id && (e.type === 'YELLOW_CARD' || e.type === 'RED_CARD'));
+    const cardEvents = allEvents.filter(e => e.playerId === leader.id && (e.type === 'YELLOW_CARD' || e.type === 'RED_CARD'));
     if (cardEvents.length === 0) {
       return (
         <EmptyBreakdown text={`Líder em fair play sem cartões registrados em eventos de súmula. Stats agregadas: ${leader.stats?.yellowCards ?? 0} amarelo(s) · ${leader.stats?.redCards ?? 0} vermelho(s) em ${leader.stats?.matches ?? 0} jogo(s).`} />

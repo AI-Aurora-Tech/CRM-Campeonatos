@@ -115,7 +115,7 @@ export const MOCK_PLAYERS: Player[] = [
   { id: 'p18', clubId: 'c1', name: 'Éverton Ribeiro',     shirtNumber: 7,  position: 'MEI', status: 'SUSPENDED', documentStatus: 'APPROVED', birthDate: '1989-09-02', photoUrl: 'https://picsum.photos/seed/p18/150/150', stats: { matches: 18, goals: 3, assists: 7, yellowCards: 6, redCards: 1, rating: 7.6 } },
   { id: 'p19', clubId: 'c1', name: 'Giuliano',            shirtNumber: 20, position: 'MEI', status: 'ACTIVE',    documentStatus: 'PENDING',  birthDate: '1990-05-31', photoUrl: 'https://picsum.photos/seed/p19/150/150', stats: { matches: 14, goals: 2, assists: 4, yellowCards: 1, redCards: 0, rating: 7.1 } },
   // Atacantes
-  { id: 'p20', clubId: 'c1', name: 'Gabriel Barbosa',     shirtNumber: 9,  position: 'ATA', status: 'ACTIVE',    documentStatus: 'APPROVED', birthDate: '1996-08-30', photoUrl: 'https://picsum.photos/seed/p20/150/150', stats: { matches: 24, goals: 18, assists: 7, yellowCards: 2, redCards: 1, rating: 8.5 } },
+  { id: 'p20', clubId: 'c1', name: 'Gabriel Barbosa',     shirtNumber: 9,  position: 'ATA', status: 'ACTIVE',    documentStatus: 'APPROVED', birthDate: '1996-08-30', photoUrl: 'https://picsum.photos/seed/p20/150/150', stats: { matches: 24, goals: 18, assists: 7, yellowCards: 2, redCards: 1, rating: 8.5, mvpCount: 4 } },
   { id: 'p21', clubId: 'c1', name: 'Bruno Henrique',      shirtNumber: 27, position: 'ATA', status: 'ACTIVE',    documentStatus: 'APPROVED', birthDate: '1990-08-20', photoUrl: 'https://picsum.photos/seed/p21/150/150', stats: { matches: 21, goals: 10, assists: 6, yellowCards: 2, redCards: 0, rating: 8.0 } },
   { id: 'p22', clubId: 'c1', name: 'Marinho Feliciano',   shirtNumber: 23, position: 'ATA', status: 'ACTIVE',    documentStatus: 'APPROVED', birthDate: '1990-11-12', photoUrl: 'https://picsum.photos/seed/p22/150/150', stats: { matches: 19, goals: 7, assists: 5, yellowCards: 3, redCards: 0, rating: 7.7 } },
   { id: 'p23', clubId: 'c1', name: 'Vitinho',             shirtNumber: 19, position: 'ATA', status: 'ACTIVE',    documentStatus: 'APPROVED', birthDate: '1993-01-10', photoUrl: 'https://picsum.photos/seed/p23/150/150', stats: { matches: 16, goals: 5, assists: 3, yellowCards: 1, redCards: 0, rating: 7.3 } },
@@ -149,7 +149,7 @@ export const MOCK_PLAYERS: Player[] = [
   { id: 'p43', clubId: 'c2', name: 'Elias Figueiredo',    shirtNumber: 11, position: 'MEI', status: 'ACTIVE',    documentStatus: 'PENDING',  birthDate: '1986-03-25', photoUrl: 'https://picsum.photos/seed/p43/150/150', stats: { matches: 14, goals: 1, assists: 5, yellowCards: 2, redCards: 0, rating: 6.9 } },
   { id: 'p44', clubId: 'c2', name: 'Lucca de Abreu',      shirtNumber: 20, position: 'MEI', status: 'ACTIVE',    documentStatus: 'APPROVED', birthDate: '1994-10-12', photoUrl: 'https://picsum.photos/seed/p44/150/150', stats: { matches: 11, goals: 2, assists: 2, yellowCards: 0, redCards: 0, rating: 6.7 } },
   // Atacantes
-  { id: 'p45', clubId: 'c2', name: 'Hulk Paraíba',        shirtNumber: 7,  position: 'ATA', status: 'ACTIVE',    documentStatus: 'APPROVED', birthDate: '1986-07-25', photoUrl: 'https://picsum.photos/seed/p45/150/150', stats: { matches: 28, goals: 25, assists: 9, yellowCards: 1, redCards: 0, rating: 9.2 } },
+  { id: 'p45', clubId: 'c2', name: 'Hulk Paraíba',        shirtNumber: 7,  position: 'ATA', status: 'ACTIVE',    documentStatus: 'APPROVED', birthDate: '1986-07-25', photoUrl: 'https://picsum.photos/seed/p45/150/150', stats: { matches: 28, goals: 25, assists: 9, yellowCards: 1, redCards: 0, rating: 9.2, mvpCount: 6 } },
   { id: 'p46', clubId: 'c2', name: 'Gilberto Silva',      shirtNumber: 99, position: 'ATA', status: 'ACTIVE',    documentStatus: 'APPROVED', birthDate: '1988-04-05', photoUrl: 'https://picsum.photos/seed/p46/150/150', stats: { matches: 24, goals: 12, assists: 4, yellowCards: 2, redCards: 0, rating: 7.8 } },
   { id: 'p47', clubId: 'c2', name: 'Salomão Pereira',     shirtNumber: 19, position: 'ATA', status: 'ACTIVE',    documentStatus: 'APPROVED', birthDate: '1992-11-30', photoUrl: 'https://picsum.photos/seed/p47/150/150', stats: { matches: 18, goals: 7, assists: 3, yellowCards: 3, redCards: 0, rating: 7.2 } },
   { id: 'p48', clubId: 'c2', name: 'Henrique Dourado',    shirtNumber: 23, position: 'ATA', status: 'ACTIVE',    documentStatus: 'APPROVED', birthDate: '1991-07-28', photoUrl: 'https://picsum.photos/seed/p48/150/150', stats: { matches: 15, goals: 5, assists: 2, yellowCards: 1, redCards: 0, rating: 7.0 } },
@@ -185,7 +185,7 @@ export const MOCK_PLAYERS: Player[] = [
   { id: 'p70', clubId: 'c3', name: 'Bruno Tabata',        shirtNumber: 20, position: 'MEI', status: 'ACTIVE',    documentStatus: 'APPROVED', birthDate: '1999-01-16', photoUrl: 'https://picsum.photos/seed/p70/150/150', stats: { matches: 19, goals: 4, assists: 7, yellowCards: 1, redCards: 0, rating: 7.9 } },
   { id: 'p71', clubId: 'c3', name: 'De Arrascaeta',       shirtNumber: 21, position: 'MEI', status: 'ACTIVE',    documentStatus: 'APPROVED', birthDate: '1994-06-01', photoUrl: 'https://picsum.photos/seed/p71/150/150', stats: { matches: 26, goals: 9, assists: 12, yellowCards: 2, redCards: 0, rating: 9.0 } },
   // Atacantes
-  { id: 'p72', clubId: 'c3', name: 'Michael Arcanjo',     shirtNumber: 9,  position: 'ATA', status: 'ACTIVE',    documentStatus: 'APPROVED', birthDate: '1997-08-09', photoUrl: 'https://picsum.photos/seed/p72/150/150', stats: { matches: 27, goals: 20, assists: 8, yellowCards: 3, redCards: 0, rating: 9.2 } },
+  { id: 'p72', clubId: 'c3', name: 'Michael Arcanjo',     shirtNumber: 9,  position: 'ATA', status: 'ACTIVE',    documentStatus: 'APPROVED', birthDate: '1997-08-09', photoUrl: 'https://picsum.photos/seed/p72/150/150', stats: { matches: 27, goals: 20, assists: 8, yellowCards: 3, redCards: 0, rating: 9.2, mvpCount: 5 } },
   { id: 'p73', clubId: 'c3', name: 'Rony Aparecido',      shirtNumber: 19, position: 'ATA', status: 'ACTIVE',    documentStatus: 'APPROVED', birthDate: '1995-09-16', photoUrl: 'https://picsum.photos/seed/p73/150/150', stats: { matches: 25, goals: 15, assists: 6, yellowCards: 2, redCards: 0, rating: 8.7 } },
   { id: 'p74', clubId: 'c3', name: 'Deyverson Brum',      shirtNumber: 27, position: 'ATA', status: 'SUSPENDED', documentStatus: 'APPROVED', birthDate: '1991-05-08', photoUrl: 'https://picsum.photos/seed/p74/150/150', stats: { matches: 16, goals: 8, assists: 2, yellowCards: 5, redCards: 2, rating: 7.6 } },
   { id: 'p75', clubId: 'c3', name: 'Keno Éverton',        shirtNumber: 99, position: 'ATA', status: 'ACTIVE',    documentStatus: 'APPROVED', birthDate: '1990-12-22', photoUrl: 'https://picsum.photos/seed/p75/150/150', stats: { matches: 20, goals: 11, assists: 4, yellowCards: 1, redCards: 0, rating: 8.1 } },
@@ -295,7 +295,20 @@ export const MOCK_VENUES: Venue[] = [
 export const MOCK_MATCHES: Match[] = [
   { id: 'm1', championshipId: 'ch1', homeTeamId: 'c1', awayTeamId: 'c2', date: '2026-04-19', time: '10:00', location: 'Campo do XV', venueId: 'v1', status: 'SCHEDULED', refereeId: 'r1' },
   { id: 'm2', championshipId: 'ch1', homeTeamId: 'c3', awayTeamId: 'c4', date: '2026-04-19', time: '12:30', location: 'Arena da Várzea', venueId: 'v2', status: 'SCHEDULED', refereeId: 'r2' },
-  { id: 'm3', championshipId: 'ch1', homeTeamId: 'c1', awayTeamId: 'c3', date: '2026-04-12', time: '10:00', location: 'Campo do XV', venueId: 'v1', status: 'FINISHED', refereeId: 'r1', score: { home: 2, away: 1 }, reportStatus: 'APPROVED' },
+  {
+    id: 'm3', championshipId: 'ch1', homeTeamId: 'c1', awayTeamId: 'c3',
+    date: '2026-04-12', time: '10:00', location: 'Campo do XV', venueId: 'v1',
+    status: 'FINISHED', refereeId: 'r1', score: { home: 2, away: 1 }, reportStatus: 'APPROVED',
+    mvpPlayerId: 'p20',
+    events: [
+      { id: 'ev-m3-1', matchId: 'm3', teamId: 'c1', playerId: 'p20', type: 'GOAL',   minute: 12 },
+      { id: 'ev-m3-2', matchId: 'm3', teamId: 'c1', playerId: 'p16', type: 'ASSIST', minute: 12 },
+      { id: 'ev-m3-3', matchId: 'm3', teamId: 'c1', playerId: 'p16', type: 'GOAL',   minute: 38 },
+      { id: 'ev-m3-4', matchId: 'm3', teamId: 'c1', playerId: 'p21', type: 'ASSIST', minute: 38 },
+      { id: 'ev-m3-5', matchId: 'm3', teamId: 'c3', playerId: 'p72', type: 'GOAL',   minute: 65 },
+      { id: 'ev-m3-6', matchId: 'm3', teamId: 'c3', playerId: 'p67', type: 'ASSIST', minute: 65 },
+    ]
+  },
   { id: 'm4', championshipId: 'ch1', homeTeamId: 'c2', awayTeamId: 'c4', date: '2026-04-11', time: '15:00', location: 'Arena Sul', venueId: 'v3', status: 'FINISHED', refereeId: 'r3', score: { home: 0, away: 0 }, reportStatus: 'PENDING' },
   {
     id: 'm5',
@@ -311,6 +324,18 @@ export const MOCK_MATCHES: Match[] = [
     score: { home: 3, away: 2 },
     reportStatus: 'AWAITING_VALIDATION',
     reportPublishedAt: '2026-05-01T18:00:00Z',
+    mvpPlayerId: 'p20',
+    events: [
+      { id: 'ev-m5-1', matchId: 'm5', teamId: 'c1', playerId: 'p20', type: 'GOAL',   minute: 22 },
+      { id: 'ev-m5-2', matchId: 'm5', teamId: 'c1', playerId: 'p16', type: 'ASSIST', minute: 22 },
+      { id: 'ev-m5-3', matchId: 'm5', teamId: 'c4', playerId: 'p91', type: 'GOAL',   minute: 33 },
+      { id: 'ev-m5-4', matchId: 'm5', teamId: 'c4', playerId: 'p94', type: 'ASSIST', minute: 33 },
+      { id: 'ev-m5-5', matchId: 'm5', teamId: 'c1', playerId: 'p20', type: 'GOAL',   minute: 47 },
+      { id: 'ev-m5-6', matchId: 'm5', teamId: 'c1', playerId: 'p17', type: 'ASSIST', minute: 47 },
+      { id: 'ev-m5-7', matchId: 'm5', teamId: 'c4', playerId: 'p92', type: 'GOAL',   minute: 70 },
+      { id: 'ev-m5-8', matchId: 'm5', teamId: 'c1', playerId: 'p21', type: 'GOAL',   minute: 80 },
+      { id: 'ev-m5-9', matchId: 'm5', teamId: 'c1', playerId: 'p16', type: 'ASSIST', minute: 80 },
+    ],
     validations: {
       home: { status: 'PENDING' },
       away: { status: 'PENDING' }
@@ -330,6 +355,13 @@ export const MOCK_MATCHES: Match[] = [
     score: { home: 1, away: 1 },
     reportStatus: 'AWAITING_VALIDATION',
     reportPublishedAt: '2026-04-25T12:00:00Z',
+    mvpPlayerId: 'p45',
+    events: [
+      { id: 'ev-m6-1', matchId: 'm6', teamId: 'c2', playerId: 'p45', type: 'GOAL',   minute: 30 },
+      { id: 'ev-m6-2', matchId: 'm6', teamId: 'c2', playerId: 'p41', type: 'ASSIST', minute: 30 },
+      { id: 'ev-m6-3', matchId: 'm6', teamId: 'c3', playerId: 'p71', type: 'GOAL',   minute: 75 },
+      { id: 'ev-m6-4', matchId: 'm6', teamId: 'c3', playerId: 'p68', type: 'ASSIST', minute: 75 },
+    ],
     validations: {
       home: { status: 'PENDING' },
       away: { status: 'PENDING' }
@@ -349,6 +381,15 @@ export const MOCK_MATCHES: Match[] = [
     score: { home: 2, away: 2 },
     reportStatus: 'IN_REVIEW',
     reportPublishedAt: '2026-04-18T17:00:00Z',
+    mvpPlayerId: 'p72',
+    events: [
+      { id: 'ev-m7-1', matchId: 'm7', teamId: 'c3', playerId: 'p72', type: 'GOAL',   minute: 25 },
+      { id: 'ev-m7-2', matchId: 'm7', teamId: 'c3', playerId: 'p67', type: 'ASSIST', minute: 25 },
+      { id: 'ev-m7-3', matchId: 'm7', teamId: 'c2', playerId: 'p45', type: 'GOAL',   minute: 50 },
+      { id: 'ev-m7-4', matchId: 'm7', teamId: 'c2', playerId: 'p41', type: 'ASSIST', minute: 50 },
+      { id: 'ev-m7-5', matchId: 'm7', teamId: 'c3', playerId: 'p72', type: 'GOAL',   minute: 60 },
+      { id: 'ev-m7-6', matchId: 'm7', teamId: 'c2', playerId: 'p45', type: 'GOAL',   minute: 88 },
+    ],
     validations: {
       home: { status: 'ACCEPTED', ratingId: 'rt-m7-c3', decidedAt: '2026-04-18T20:00:00Z' },
       away: {
