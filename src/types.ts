@@ -63,14 +63,46 @@ export interface Referee {
   email?: string;
 }
 
+export interface RefereeRatingDetail {
+  punctuality: number;     // Pontualidade
+  control: number;         // Controle da partida
+  rules: number;           // Regras
+  impartiality: number;    // Imparcialidade
+  communication: number;   // Comunicação
+  reportFilling: number;   // Preenchimento da súmula
+}
+
 export interface RefereeRating {
   id: string;
   matchId: string;
   refereeId: string;
   clubId: string;
-  score: number; // 1-5
+  score: number; // 1-5 (média dos 6 critérios quando detail estiver presente)
   comment?: string;
   createdAt: string;
+  detail?: RefereeRatingDetail;
+}
+
+export type RefereeClassification = 'BRONZE' | 'PRATA' | 'OURO';
+
+export type ContestType = 'GOL' | 'CARTAO' | 'SUBSTITUICAO' | 'PLACAR' | 'OUTRO';
+
+export interface ContestRecord {
+  type: ContestType;
+  description: string;
+  suggestion: string;
+}
+
+export interface ClubValidationState {
+  status: 'PENDING' | 'ACCEPTED' | 'CONTESTED';
+  ratingId?: string;
+  contest?: ContestRecord;
+  decidedAt?: string;
+}
+
+export interface MatchValidations {
+  home: ClubValidationState;
+  away: ClubValidationState;
 }
 
 export interface Player {
@@ -133,8 +165,10 @@ export interface Match {
     home: Lineup;
     away: Lineup;
   };
-  reportStatus?: 'PENDING' | 'APPROVED' | 'CONTESTED';
+  reportStatus?: 'PENDING' | 'APPROVED' | 'CONTESTED' | 'AWAITING_VALIDATION' | 'IN_REVIEW' | 'VALIDATED';
   contestReason?: string;
+  reportPublishedAt?: string; // ISO — marca início do prazo de 48h
+  validations?: MatchValidations;
   score?: {
     home: number;
     away: number;
@@ -178,12 +212,13 @@ export interface Standing {
   form: ('W' | 'D' | 'L')[];
 }
 
-export type NotificationType = 
-  | 'MATCH_TOMORROW' 
-  | 'MATCH_7_DAYS' 
-  | 'PLAYER_SUSPENDED' 
-  | 'NEW_ROUND' 
-  | 'MISSING_LINEUP';
+export type NotificationType =
+  | 'MATCH_TOMORROW'
+  | 'MATCH_7_DAYS'
+  | 'PLAYER_SUSPENDED'
+  | 'NEW_ROUND'
+  | 'MISSING_LINEUP'
+  | 'REPORT_VALIDATION_PENDING';
 
 export type NotificationChannel = 'email' | 'sms' | 'push';
 

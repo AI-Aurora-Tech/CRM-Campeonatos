@@ -85,11 +85,11 @@ import { GoogleGenAI } from "@google/genai";
 import { useAppData } from './hooks/useAppData';
 import { AuthPanel } from './components/AuthPanel';
 import { FinancialDashboardView } from './features/FinancialDashboardView';
-import { Match, Championship, Standing, MatchEvent, Club, Player, Referee, RefereeRating, Lineup, Notification, NotificationType, MediaAsset, Venue, ChampionshipBundle } from './types';
+import { Match, Championship, Standing, MatchEvent, Club, Player, Referee, RefereeRating, RefereeRatingDetail, RefereeClassification, ContestRecord, ContestType, ClubValidationState, Lineup, Notification, NotificationType, MediaAsset, Venue, ChampionshipBundle } from './types';
 import { MOCK_CHAMPIONSHIP, MOCK_CLUBS, MOCK_PLAYERS, MOCK_MATCHES, MOCK_VENUES, MOCK_REFEREES, MOCK_RATINGS } from './mockData';
 
 // Types for navigation
-type View = 'dashboard' | 'championships' | 'clubs' | 'players' | 'matches' | 'reports' | 'financial' | 'club-detail' | 'referees' | 'lineup' | 'player-detail' | 'automation' | 'public-portal' | 'media' | 'analytics' | 'venues' | 'eligibility';
+type View = 'dashboard' | 'championships' | 'clubs' | 'players' | 'matches' | 'reports' | 'financial' | 'club-detail' | 'referees' | 'lineup' | 'player-detail' | 'automation' | 'public-portal' | 'media' | 'analytics' | 'venues' | 'eligibility' | 'validation';
 
 // Sub-components for better organization
 function ClubsView({ clubs, setClubs, players, onSelectClub, defaultPresidentId }: { clubs: Club[], setClubs: React.Dispatch<React.SetStateAction<Club[]>>, players: Player[], onSelectClub: (id: string) => void, defaultPresidentId: string }) {
@@ -421,6 +421,13 @@ function ClubDetailView({ club, players, matches, clubs, standings, championship
     p.status === 'ACTIVE' && (p.stats?.yellowCards ?? 0) >= championship.rules.yellowCardLimit - 1
   );
 
+  // ── Pendências de validação pós-jogo ─────────────────────────────────────
+  const pendingValidations = clubMatches.filter(m => {
+    if (m.reportStatus !== 'AWAITING_VALIDATION' && m.reportStatus !== 'IN_REVIEW') return false;
+    const side = m.homeTeamId === club.id ? 'home' : 'away';
+    return (m.validations?.[side]?.status ?? 'PENDING') === 'PENDING';
+  });
+
   // ── Documents ────────────────────────────────────────────────────────────
   const docApproved = clubPlayers.filter(p => p.documentStatus === 'APPROVED').length;
   const docPending  = clubPlayers.filter(p => p.documentStatus === 'PENDING').length;
@@ -472,6 +479,7 @@ function ClubDetailView({ club, players, matches, clubs, standings, championship
               {club.foundedYear && <span className="text-[10px] font-black bg-neutral-100 text-text-muted px-2 py-1 rounded border border-surface-border uppercase tracking-widest">Fundado em {club.foundedYear}</span>}
               {club.hasPendingFinance && <span className="text-[10px] font-black bg-red-100 text-red-700 px-2 py-1 rounded-full uppercase tracking-widest flex items-center gap-1"><AlertTriangle size={10} /> Pendência Financeira</span>}
               {suspendedPlayers.length > 0 && <span className="text-[10px] font-black bg-orange-100 text-orange-700 px-2 py-1 rounded-full uppercase tracking-widest">{suspendedPlayers.length} Suspenso{suspendedPlayers.length > 1 ? 's' : ''}</span>}
+              {pendingValidations.length > 0 && <span className="text-[10px] font-black bg-amber-100 text-amber-800 px-2 py-1 rounded-full uppercase tracking-widest flex items-center gap-1"><ClipboardList size={10} /> {pendingValidations.length} Súmula{pendingValidations.length > 1 ? 's' : ''} p/ Validar</span>}
             </div>
             <p className="text-[11px] font-bold text-text-muted mt-1 uppercase tracking-widest">Entidade Filiada • Liga Amadora de Futebol</p>
           </div>
@@ -4141,6 +4149,439 @@ function MatchReportView({
   );
 }
 
+// ── Helpers de avaliação de árbitro ────────────────────────────────────────
+const RATING_CRITERIA: { key: keyof RefereeRatingDetail; label: string }[] = [
+  { key: 'punctuality',   label: 'Pontualidade' },
+  { key: 'control',       label: 'Controle da partida' },
+  { key: 'rules',         label: 'Aplicação das regras' },
+  { key: 'impartiality',  label: 'Imparcialidade' },
+  { key: 'communication', label: 'Comunicação' },
+  { key: 'reportFilling', label: 'Preenchimento da súmula' },
+];
+
+function averageRatingDetail(d: RefereeRatingDetail): number {
+  const sum = d.punctuality + d.control + d.rules + d.impartiality + d.communication + d.reportFilling;
+  return Number((sum / 6).toFixed(2));
+}
+
+function classifyRating(score: number): RefereeClassification {
+  if (score >= 4.3) return 'OURO';
+  if (score >= 3)   return 'PRATA';
+  return 'BRONZE';
+}
+
+function classificationStyle(c: RefereeClassification): string {
+  if (c === 'OURO')   return 'bg-amber-100 text-amber-800 border-amber-200';
+  if (c === 'PRATA')  return 'bg-neutral-200 text-neutral-700 border-neutral-300';
+  return 'bg-orange-100 text-orange-700 border-orange-200';
+}
+
+const CONTEST_TYPES: { value: ContestType; label: string }[] = [
+  { value: 'GOL',           label: 'Gol' },
+  { value: 'CARTAO',        label: 'Cartão' },
+  { value: 'SUBSTITUICAO',  label: 'Substituição' },
+  { value: 'PLACAR',        label: 'Placar' },
+  { value: 'OUTRO',         label: 'Outro' },
+];
+
+function deadlineInfo(publishedAt?: string): { remainingMs: number; expired: boolean; label: string } {
+  if (!publishedAt) return { remainingMs: 0, expired: false, label: 'Sem prazo definido' };
+  const deadline = new Date(publishedAt).getTime() + 48 * 60 * 60 * 1000;
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) return { remainingMs: 0, expired: true, label: 'Prazo expirado' };
+  const h = Math.floor(remainingMs / (60 * 60 * 1000));
+  const m = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000));
+  return { remainingMs, expired: false, label: `${h}h ${m}m restantes` };
+}
+
+function StarPicker({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  return (
+    <div className="flex items-center gap-1">
+      {[1, 2, 3, 4, 5].map(n => (
+        <button
+          key={n}
+          type="button"
+          onClick={() => onChange(n)}
+          className={`p-1 rounded transition-all ${value >= n ? 'text-accent' : 'text-neutral-300 hover:text-neutral-400'}`}
+        >
+          <Star size={20} fill={value >= n ? 'currentColor' : 'none'} />
+        </button>
+      ))}
+      <span className="ml-2 text-[11px] font-bold text-text-muted w-6">{value > 0 ? value : '—'}</span>
+    </div>
+  );
+}
+
+function ValidationCenterView({
+  matches,
+  clubs,
+  referees,
+  ratings,
+  onSubmitValidation,
+  onOrganizerResolve,
+}: {
+  matches: Match[];
+  clubs: Club[];
+  referees: Referee[];
+  ratings: RefereeRating[];
+  onSubmitValidation: (matchId: string, side: 'home' | 'away', decision: 'ACCEPT' | 'CONTEST', detail: RefereeRatingDetail, contest?: ContestRecord) => void;
+  onOrganizerResolve: (matchId: string, action: 'VALIDATE' | 'REOPEN') => void;
+}) {
+  type ModalCtx = { matchId: string; side: 'home' | 'away' } | null;
+  const [modalCtx, setModalCtx] = useState<ModalCtx>(null);
+  const [step, setStep] = useState<1 | 2>(1);
+  const [detail, setDetail] = useState<RefereeRatingDetail>({
+    punctuality: 0, control: 0, rules: 0, impartiality: 0, communication: 0, reportFilling: 0,
+  });
+  const [decision, setDecision] = useState<'ACCEPT' | 'CONTEST' | null>(null);
+  const [contestType, setContestType] = useState<ContestType>('GOL');
+  const [contestDescription, setContestDescription] = useState('');
+  const [contestSuggestion, setContestSuggestion] = useState('');
+  const [, forceTick] = useState(0);
+
+  // Atualiza countdown a cada minuto
+  useEffect(() => {
+    const interval = setInterval(() => forceTick(t => t + 1), 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const pendingMatches = matches.filter(m =>
+    m.reportStatus === 'AWAITING_VALIDATION' ||
+    m.reportStatus === 'IN_REVIEW' ||
+    m.reportStatus === 'VALIDATED'
+  );
+
+  const queue = pendingMatches.filter(m => m.reportStatus !== 'VALIDATED');
+  const recent = pendingMatches.filter(m => m.reportStatus === 'VALIDATED').slice(0, 5);
+
+  const resetModal = () => {
+    setModalCtx(null);
+    setStep(1);
+    setDetail({ punctuality: 0, control: 0, rules: 0, impartiality: 0, communication: 0, reportFilling: 0 });
+    setDecision(null);
+    setContestType('GOL');
+    setContestDescription('');
+    setContestSuggestion('');
+  };
+
+  const ratingComplete = RATING_CRITERIA.every(c => detail[c.key] >= 1);
+
+  const submit = () => {
+    if (!modalCtx || !decision || !ratingComplete) return;
+    if (decision === 'CONTEST' && (!contestDescription.trim() || !contestSuggestion.trim())) return;
+    const contest: ContestRecord | undefined = decision === 'CONTEST'
+      ? { type: contestType, description: contestDescription.trim(), suggestion: contestSuggestion.trim() }
+      : undefined;
+    onSubmitValidation(modalCtx.matchId, modalCtx.side, decision, detail, contest);
+    resetModal();
+  };
+
+  const sideLabel = (m: Match, side: 'home' | 'away') => {
+    const club = clubs.find(c => c.id === (side === 'home' ? m.homeTeamId : m.awayTeamId));
+    return club?.name ?? side;
+  };
+
+  const statusBadge = (s?: string) => {
+    switch (s) {
+      case 'AWAITING_VALIDATION':
+        return <span className="text-[9px] font-black px-2 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-200 uppercase tracking-tighter">Aguardando Validação</span>;
+      case 'IN_REVIEW':
+        return <span className="text-[9px] font-black px-2 py-0.5 rounded border bg-orange-50 text-orange-700 border-orange-200 uppercase tracking-tighter">Em Revisão</span>;
+      case 'VALIDATED':
+        return <span className="text-[9px] font-black px-2 py-0.5 rounded border bg-green-50 text-green-700 border-green-200 uppercase tracking-tighter">Validada</span>;
+      default:
+        return null;
+    }
+  };
+
+  const clubStatusPill = (cv?: ClubValidationState) => {
+    const s = cv?.status ?? 'PENDING';
+    if (s === 'PENDING')   return <span className="text-[9px] font-black px-2 py-0.5 rounded bg-neutral-100 text-neutral-600 border border-neutral-200 uppercase">Pendente</span>;
+    if (s === 'ACCEPTED')  return <span className="text-[9px] font-black px-2 py-0.5 rounded bg-green-50 text-green-700 border border-green-200 uppercase">Aceitou</span>;
+    return <span className="text-[9px] font-black px-2 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 uppercase">Contestou</span>;
+  };
+
+  const currentMatch = modalCtx ? matches.find(m => m.id === modalCtx.matchId) : null;
+  const currentReferee = currentMatch?.refereeId ? referees.find(r => r.id === currentMatch.refereeId) : null;
+  const currentClub = currentMatch && modalCtx
+    ? clubs.find(c => c.id === (modalCtx.side === 'home' ? currentMatch.homeTeamId : currentMatch.awayTeamId))
+    : null;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-surface-border shadow-sm">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight">Central de Validação Pós-Jogo</h2>
+          <p className="text-[10px] font-black uppercase text-text-muted">
+            Avaliação obrigatória do árbitro + aceite ou contestação em até 48h
+          </p>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="text-center">
+            <p className="text-2xl font-black text-amber-600 leading-none">{queue.filter(m => m.reportStatus === 'AWAITING_VALIDATION').length}</p>
+            <p className="text-[9px] uppercase font-black text-text-muted tracking-widest">Aguardando</p>
+          </div>
+          <div className="text-center">
+            <p className="text-2xl font-black text-orange-600 leading-none">{queue.filter(m => m.reportStatus === 'IN_REVIEW').length}</p>
+            <p className="text-[9px] uppercase font-black text-text-muted tracking-widest">Em Revisão</p>
+          </div>
+          <div className="text-center">
+            <p className="text-2xl font-black text-green-600 leading-none">{recent.length}</p>
+            <p className="text-[9px] uppercase font-black text-text-muted tracking-widest">Validadas</p>
+          </div>
+        </div>
+      </div>
+
+      {queue.length === 0 && (
+        <div className="card-utility flex flex-col items-center justify-center py-12 text-text-muted">
+          <CheckCircle size={32} className="mb-3 text-green-500" />
+          <p className="text-[13px] font-bold">Nenhuma súmula pendente de validação no momento.</p>
+        </div>
+      )}
+
+      {queue.map(m => {
+        const home = clubs.find(c => c.id === m.homeTeamId);
+        const away = clubs.find(c => c.id === m.awayTeamId);
+        const ref  = referees.find(r => r.id === m.refereeId);
+        const dl = deadlineInfo(m.reportPublishedAt);
+        const validations = m.validations ?? { home: { status: 'PENDING' }, away: { status: 'PENDING' } };
+
+        return (
+          <div key={m.id} className="card-utility space-y-4">
+            <div className="flex items-start justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
+                  <img src={home?.logoUrl} alt="" className="w-9 h-9 rounded-lg border border-surface-border" />
+                  <span className="font-bold text-[14px]">{home?.shortName}</span>
+                </div>
+                <div className="font-mono text-lg font-black bg-neutral-100 px-3 py-1 rounded">{m.score?.home ?? 0} - {m.score?.away ?? 0}</div>
+                <div className="flex items-center gap-3">
+                  <span className="font-bold text-[14px]">{away?.shortName}</span>
+                  <img src={away?.logoUrl} alt="" className="w-9 h-9 rounded-lg border border-surface-border" />
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                {statusBadge(m.reportStatus)}
+                <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest ${dl.expired ? 'text-red-600' : 'text-text-muted'}`}>
+                  <Clock size={12} /> {dl.label}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 text-[11px] text-text-muted">
+              <Calendar size={12} /> {m.date} {m.time}
+              <span className="w-1 h-1 rounded-full bg-surface-border" />
+              <Users size={12} /> Árbitro: <span className="font-bold text-text-main">{ref?.name ?? '—'}</span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {(['home', 'away'] as const).map(side => {
+                const cv = validations[side];
+                const club = side === 'home' ? home : away;
+                return (
+                  <div key={side} className="flex items-center justify-between p-3 bg-neutral-50 rounded-xl border border-surface-border/60">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <img src={club?.logoUrl} alt="" className="w-8 h-8 rounded-lg border border-surface-border shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[12px] font-bold truncate">{sideLabel(m, side)}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          {clubStatusPill(cv)}
+                          {cv.contest && (
+                            <span className="text-[9px] font-bold text-red-700 truncate max-w-[140px]" title={cv.contest.description}>
+                              {CONTEST_TYPES.find(t => t.value === cv.contest!.type)?.label}: {cv.contest.description}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    {cv.status === 'PENDING' && m.reportStatus !== 'VALIDATED' && (
+                      <button
+                        onClick={() => { setModalCtx({ matchId: m.id, side }); setStep(1); }}
+                        className="px-3 py-1.5 bg-accent text-white text-[10px] font-black uppercase rounded-lg hover:brightness-110 flex items-center gap-1.5 shrink-0"
+                      >
+                        <Star size={12} /> Avaliar e Decidir
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {m.reportStatus === 'IN_REVIEW' && (
+              <div className="border-t border-dashed border-surface-border pt-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div className="flex items-start gap-2 text-[11px] text-text-muted">
+                  <ShieldAlert size={14} className="text-orange-500 shrink-0 mt-0.5" />
+                  <span>Há contestação. Cabe ao organizador decidir entre validar a súmula como está ou reabrir o ciclo de validação.</span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => onOrganizerResolve(m.id, 'REOPEN')}
+                    className="px-3 py-1.5 bg-neutral-100 text-text-main text-[10px] font-black uppercase rounded-lg hover:bg-neutral-200 flex items-center gap-1.5"
+                  >
+                    <RefreshCw size={12} /> Reabrir
+                  </button>
+                  <button
+                    onClick={() => onOrganizerResolve(m.id, 'VALIDATE')}
+                    className="px-3 py-1.5 bg-primary text-white text-[10px] font-black uppercase rounded-lg hover:brightness-110 flex items-center gap-1.5"
+                  >
+                    <Check size={12} /> Validar Decisão
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {recent.length > 0 && (
+        <div className="card-utility">
+          <h3 className="font-bold text-[13px] mb-3 flex items-center gap-2">
+            <CheckCircle size={14} className="text-green-500" /> Validadas Recentemente
+          </h3>
+          <div className="divide-y divide-dotted divide-surface-border">
+            {recent.map(m => {
+              const home = clubs.find(c => c.id === m.homeTeamId);
+              const away = clubs.find(c => c.id === m.awayTeamId);
+              const matchRatings = ratings.filter(r => r.matchId === m.id);
+              const avg = matchRatings.length > 0 ? matchRatings.reduce((s, r) => s + r.score, 0) / matchRatings.length : 0;
+              const cls = avg > 0 ? classifyRating(avg) : null;
+              return (
+                <div key={m.id} className="py-2 flex items-center justify-between text-[12px]">
+                  <span><b>{home?.shortName}</b> {m.score?.home}-{m.score?.away} <b>{away?.shortName}</b> — {m.date}</span>
+                  {cls && (
+                    <span className={`text-[9px] font-black px-2 py-0.5 rounded border uppercase ${classificationStyle(cls)}`}>
+                      Árbitro {cls} ({avg.toFixed(1)})
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {modalCtx && currentMatch && currentClub && (
+        <div className="fixed inset-0 bg-primary/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-3xl shadow-2xl w-full max-w-xl overflow-hidden border border-surface-border">
+            <div className="p-6 border-b border-surface-border bg-neutral-50 flex items-center justify-between">
+              <div>
+                <h3 className="font-black text-primary uppercase text-sm tracking-tight">
+                  {step === 1 ? '1. Avaliação do Árbitro' : '2. Aceitar ou Contestar'}
+                </h3>
+                <p className="text-[10px] text-text-muted font-bold">
+                  Decidindo como <b>{currentClub.name}</b> · Árbitro: {currentReferee?.name ?? '—'}
+                </p>
+              </div>
+              <button onClick={resetModal} className="text-text-muted hover:text-red-500"><X size={20} /></button>
+            </div>
+
+            {step === 1 && (
+              <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+                <p className="text-[11px] text-text-muted">
+                  Avalie de 1 a 5 cada critério. A média define a classificação do árbitro
+                  (<b className="text-orange-600">Bronze 1–2.9</b> · <b className="text-neutral-600">Prata 3–4.2</b> · <b className="text-amber-600">Ouro 4.3–5</b>).
+                  Esta etapa é obrigatória antes de aceitar ou contestar.
+                </p>
+                {RATING_CRITERIA.map(c => (
+                  <div key={c.key} className="flex items-center justify-between py-2 border-b border-surface-border/50 last:border-b-0">
+                    <span className="text-[12px] font-bold">{c.label}</span>
+                    <StarPicker value={detail[c.key]} onChange={v => setDetail(d => ({ ...d, [c.key]: v }))} />
+                  </div>
+                ))}
+                {ratingComplete && (
+                  <div className="flex items-center gap-2 text-[11px] font-bold text-text-muted bg-neutral-50 p-3 rounded-lg">
+                    Média: <b className="text-primary">{averageRatingDetail(detail).toFixed(2)}</b>
+                    <span className={`text-[9px] font-black px-2 py-0.5 rounded border uppercase ${classificationStyle(classifyRating(averageRatingDetail(detail)))}`}>
+                      {classifyRating(averageRatingDetail(detail))}
+                    </span>
+                  </div>
+                )}
+                <div className="flex gap-3 pt-2">
+                  <button onClick={resetModal} className="flex-1 btn-outline">Cancelar</button>
+                  <button
+                    onClick={() => setStep(2)}
+                    disabled={!ratingComplete}
+                    className="flex-1 btn-primary disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Continuar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {step === 2 && (
+              <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setDecision('ACCEPT')}
+                    className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${decision === 'ACCEPT' ? 'border-green-500 bg-green-50' : 'border-surface-border hover:border-green-200'}`}
+                  >
+                    <Check size={20} className="text-green-600" />
+                    <span className="text-[12px] font-black uppercase">Aceitar Súmula</span>
+                  </button>
+                  <button
+                    onClick={() => setDecision('CONTEST')}
+                    className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${decision === 'CONTEST' ? 'border-red-500 bg-red-50' : 'border-surface-border hover:border-red-200'}`}
+                  >
+                    <ShieldAlert size={20} className="text-red-600" />
+                    <span className="text-[12px] font-black uppercase">Contestar Súmula</span>
+                  </button>
+                </div>
+
+                {decision === 'CONTEST' && (
+                  <div className="space-y-3 border-t border-surface-border pt-4">
+                    <div>
+                      <label className="text-[10px] font-black uppercase text-text-muted tracking-widest">Tipo</label>
+                      <select
+                        value={contestType}
+                        onChange={e => setContestType(e.target.value as ContestType)}
+                        className="w-full bg-neutral-50 border border-surface-border rounded-xl px-3 py-2 text-sm font-medium focus:outline-none focus:border-accent mt-1"
+                      >
+                        {CONTEST_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black uppercase text-text-muted tracking-widest">Descrição</label>
+                      <textarea
+                        rows={3}
+                        value={contestDescription}
+                        onChange={e => setContestDescription(e.target.value)}
+                        placeholder="O que aconteceu? (ex: gol marcado em posição irregular aos 32min)"
+                        className="w-full bg-neutral-50 border border-surface-border rounded-xl p-3 text-sm font-medium focus:outline-none focus:border-accent resize-none mt-1"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black uppercase text-text-muted tracking-widest">Sugestão de correção</label>
+                      <textarea
+                        rows={2}
+                        value={contestSuggestion}
+                        onChange={e => setContestSuggestion(e.target.value)}
+                        placeholder="Como deveria ficar? (ex: anular o gol e manter placar 2-2)"
+                        className="w-full bg-neutral-50 border border-surface-border rounded-xl p-3 text-sm font-medium focus:outline-none focus:border-accent resize-none mt-1"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-2">
+                  <button onClick={() => setStep(1)} className="flex-1 btn-outline">Voltar</button>
+                  <button
+                    onClick={submit}
+                    disabled={!decision || (decision === 'CONTEST' && (!contestDescription.trim() || !contestSuggestion.trim()))}
+                    className="flex-1 btn-primary disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Enviar Decisão
+                  </button>
+                </div>
+              </div>
+            )}
+          </motion.div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GeminiInsights({
   standings,
   supabase,
@@ -4400,10 +4841,16 @@ function App() {
         });
       });
     }
+    const publishedAt = new Date().toISOString();
     setMatches(prev => prev.map(m => m.id === match.id ? {
       ...match,
       status: 'FINISHED',
-      reportStatus: 'PENDING',
+      reportStatus: 'AWAITING_VALIDATION',
+      reportPublishedAt: publishedAt,
+      validations: {
+        home: { status: 'PENDING' },
+        away: { status: 'PENDING' }
+      },
       events,
       mvpPlayerId,
       minutesPlayed,
@@ -4414,6 +4861,26 @@ function App() {
         stats: { ...p.stats, matches: p.stats?.matches ?? 0, goals: p.stats?.goals ?? 0, assists: p.stats?.assists ?? 0, yellowCards: p.stats?.yellowCards ?? 0, redCards: p.stats?.redCards ?? 0, rating: p.stats?.rating ?? 0, mvpCount: (p.stats?.mvpCount ?? 0) + 1 },
       } : p));
     }
+    const homeClub = clubs.find(c => c.id === match.homeTeamId);
+    const awayClub = clubs.find(c => c.id === match.awayTeamId);
+    const validationNotifs: Notification[] = (['home', 'away'] as const).flatMap(side => {
+      const club = side === 'home' ? homeClub : awayClub;
+      if (!club || !club.email) return [];
+      return [{
+        id: `not-val-${match.id}-${club.id}-${Date.now()}`,
+        type: 'REPORT_VALIDATION_PENDING' as NotificationType,
+        clubId: club.id,
+        recipientEmail: club.email,
+        channel: 'email',
+        status: 'QUEUED',
+        subject: `Súmula pendente de validação — ${homeClub?.shortName} x ${awayClub?.shortName}`,
+        content: `Olá, ${club.name}. A súmula da partida ${homeClub?.shortName} x ${awayClub?.shortName} foi publicada. Avalie o árbitro e aceite ou conteste em até 48h na Central de Validação Pós-Jogo.`,
+        matchId: match.id,
+      }];
+    });
+    if (validationNotifs.length > 0) {
+      setNotifications(prev => [...validationNotifs, ...prev]);
+    }
     setCurrentView('matches');
   };
 
@@ -4423,6 +4890,71 @@ function App() {
 
   const handleContestReport = (matchId: string, reason: string) => {
     setMatches(prev => prev.map(m => m.id === matchId ? { ...m, reportStatus: 'CONTESTED', contestReason: reason } : m));
+  };
+
+  const handleClubSubmitValidation = (
+    matchId: string,
+    side: 'home' | 'away',
+    decision: 'ACCEPT' | 'CONTEST',
+    ratingDetail: RefereeRatingDetail,
+    contest?: ContestRecord
+  ) => {
+    const match = matches.find(m => m.id === matchId);
+    if (!match || !match.refereeId) return;
+    const clubId = side === 'home' ? match.homeTeamId : match.awayTeamId;
+    const avg = averageRatingDetail(ratingDetail);
+    const newRating: RefereeRating = {
+      id: `rt-${matchId}-${clubId}-${Date.now()}`,
+      matchId,
+      refereeId: match.refereeId,
+      clubId,
+      score: avg,
+      detail: ratingDetail,
+      createdAt: new Date().toISOString(),
+      comment: contest?.description,
+    };
+
+    const updatedRatings = [...ratings, newRating];
+    setRatings(updatedRatings);
+
+    // Atualiza média do árbitro com base em todas as avaliações dele
+    const refRatings = updatedRatings.filter(r => r.refereeId === match.refereeId);
+    const refAvg = refRatings.reduce((s, r) => s + r.score, 0) / refRatings.length;
+    setReferees(prev => prev.map(r => r.id === match.refereeId
+      ? { ...r, averageRating: Number(refAvg.toFixed(2)) }
+      : r));
+
+    setMatches(prev => prev.map(m => {
+      if (m.id !== matchId) return m;
+      const current = m.validations ?? { home: { status: 'PENDING' }, away: { status: 'PENDING' } };
+      const updatedSide: ClubValidationState = {
+        status: decision === 'ACCEPT' ? 'ACCEPTED' : 'CONTESTED',
+        ratingId: newRating.id,
+        decidedAt: new Date().toISOString(),
+        contest: decision === 'CONTEST' ? contest : undefined,
+      };
+      const nextValidations = { ...current, [side]: updatedSide };
+      const both = nextValidations.home.status !== 'PENDING' && nextValidations.away.status !== 'PENDING';
+      const anyContested = nextValidations.home.status === 'CONTESTED' || nextValidations.away.status === 'CONTESTED';
+      let nextStatus = m.reportStatus;
+      if (anyContested) nextStatus = 'IN_REVIEW';
+      else if (both) nextStatus = 'VALIDATED';
+      return { ...m, validations: nextValidations, reportStatus: nextStatus };
+    }));
+  };
+
+  const handleOrganizerResolve = (matchId: string, action: 'VALIDATE' | 'REOPEN') => {
+    setMatches(prev => prev.map(m => {
+      if (m.id !== matchId) return m;
+      if (action === 'VALIDATE') return { ...m, reportStatus: 'VALIDATED' };
+      // Reopen — limpa decisões para que os clubes refaçam
+      return {
+        ...m,
+        reportStatus: 'AWAITING_VALIDATION',
+        validations: { home: { status: 'PENDING' }, away: { status: 'PENDING' } },
+        reportPublishedAt: new Date().toISOString(),
+      };
+    }));
   };
 
   return (
@@ -4469,6 +5001,7 @@ function App() {
               <NavBtn active={currentView === 'eligibility'} icon={<Shield size={18} />} label="Documentos & Elegibilidade" onClick={() => navigateTo('eligibility')} />
               <NavBtn active={currentView === 'financial'} icon={<Wallet size={18} />} label="Financeiro" onClick={() => navigateTo('financial')} />
               <NavBtn active={currentView === 'reports'} icon={<ClipboardList size={18} />} label="Súmula pós-jogo" onClick={() => navigateTo('reports')} />
+              <NavBtn active={currentView === 'validation'} icon={<CheckCircle size={18} />} label="Validação Pós-Jogo" onClick={() => navigateTo('validation')} />
               <NavBtn active={currentView === 'analytics'} icon={<BarChart3 size={18} />} label="Relatórios & Analytics" onClick={() => navigateTo('analytics')} />
               <NavBtn active={currentView === 'automation'} icon={<Zap size={18} />} label="Automações & Alertas" onClick={() => navigateTo('automation')} />
               <NavBtn active={currentView === 'media'} icon={<ImageIcon size={18} />} label="Mídia & Galeria" onClick={() => navigateTo('media')} />
@@ -4718,8 +5251,18 @@ function App() {
                   championshipId={championship.id}
                 />
               )}
+              {currentView === 'validation' && (
+                <ValidationCenterView
+                  matches={matches}
+                  clubs={clubs}
+                  referees={referees}
+                  ratings={ratings}
+                  onSubmitValidation={handleClubSubmitValidation}
+                  onOrganizerResolve={handleOrganizerResolve}
+                />
+              )}
               {currentView === 'reports' && (
-                <MatchReportView 
+                <MatchReportView
                   clubs={clubs}
                   players={players}
                   matches={matches}
@@ -4981,6 +5524,9 @@ function MatchesView({
       case 'PENDING': return <span className="text-[9px] font-black px-2 py-0.5 rounded border bg-amber-50 text-amber-600 border-amber-200 uppercase tracking-tighter">Pendente</span>;
       case 'APPROVED': return <span className="text-[9px] font-black px-2 py-0.5 rounded border bg-green-50 text-green-700 border-green-200 uppercase tracking-tighter">Aprovada</span>;
       case 'CONTESTED': return <span className="text-[9px] font-black px-2 py-0.5 rounded border bg-red-50 text-red-600 border-red-200 uppercase tracking-tighter">Contestada</span>;
+      case 'AWAITING_VALIDATION': return <span className="text-[9px] font-black px-2 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-200 uppercase tracking-tighter">Aguardando Validação</span>;
+      case 'IN_REVIEW': return <span className="text-[9px] font-black px-2 py-0.5 rounded border bg-orange-50 text-orange-700 border-orange-200 uppercase tracking-tighter">Em Revisão</span>;
+      case 'VALIDATED': return <span className="text-[9px] font-black px-2 py-0.5 rounded border bg-green-50 text-green-700 border-green-200 uppercase tracking-tighter">Validada</span>;
       default: return null;
     }
   };
