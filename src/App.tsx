@@ -2469,70 +2469,107 @@ const isPlayerEligible = (player: Player, rules: Championship['rules']): { eligi
   return { eligible: reasons.length === 0, reasons };
 };
 
-function AwardsView({ players, clubs, matches }: { players: Player[], clubs: Club[], matches: Match[] }) {
-  // 1. Artilheiro (Already have stats)
-  const topScorer = [...players].sort((a, b) => (b.stats?.goals || 0) - (a.stats?.goals || 0))[0];
+// Posições consideradas "defesa" para o Prêmio Fair Play
+const DEFENSE_POSITIONS = ['ZAG', 'LD', 'LE', 'LAT', 'DEF'];
 
-  // 2. Melhor Goleiro (goalsAgainst / matchesPlayed)
-  // We need to calculate goalsAgainst for goalkeepers
-  // Simplification for MVP: We take the club clean sheets or calculate from matches
+function AwardsView({ players, clubs, matches }: { players: Player[], clubs: Club[], matches: Match[] }) {
+  // 1. Chuteira de Ouro — Artilheiro
+  const topScorer = [...players]
+    .filter(p => (p.stats?.goals || 0) > 0)
+    .sort((a, b) => (b.stats?.goals || 0) - (a.stats?.goals || 0))[0];
+
+  // 2. Chuteira de Prata — Mais assistências
+  const topAssister = [...players]
+    .filter(p => (p.stats?.assists || 0) > 0)
+    .sort((a, b) => (b.stats?.assists || 0) - (a.stats?.assists || 0))[0];
+
+  // 3. Luva de Ouro — Goleiro com menor média de gols sofridos (proporcional aos
+  //    jogos disputados pela equipe). Empate vai pra quem tem mais clean sheets.
   const goalkeepers = players.filter(p => p.position === 'GOL');
   const goalkeeperStats = goalkeepers.map(gk => {
-    const club = clubs.find(c => c.id === gk.clubId);
-    const clubMatches = matches.filter(m => m.status === 'FINISHED' && (m.homeTeamId === gk.clubId || m.awayTeamId === gk.clubId));
+    const clubMatches = matches.filter(m =>
+      m.status === 'FINISHED' &&
+      (m.homeTeamId === gk.clubId || m.awayTeamId === gk.clubId)
+    );
     const goalsAgainst = clubMatches.reduce((acc, m) => {
       const isHome = m.homeTeamId === gk.clubId;
       return acc + (isHome ? (m.score?.away || 0) : (m.score?.home || 0));
     }, 0);
-    const index = clubMatches.length > 0 ? goalsAgainst / clubMatches.length : 999;
-    return { gk, index, matches: clubMatches.length, goalsAgainst };
-  }).filter(s => s.matches > 0).sort((a, b) => a.index - b.index);
+    const cleanSheets = clubMatches.filter(m => {
+      const isHome = m.homeTeamId === gk.clubId;
+      return (isHome ? (m.score?.away || 0) : (m.score?.home || 0)) === 0;
+    }).length;
+    const played = clubMatches.length;
+    const ratio = played > 0 ? goalsAgainst / played : Infinity;
+    return { gk, ratio, played, goalsAgainst, cleanSheets };
+  })
+  .filter(s => s.played > 0)
+  .sort((a, b) => a.ratio !== b.ratio ? a.ratio - b.ratio : b.cleanSheets - a.cleanSheets);
+  const bestGK = goalkeeperStats[0];
 
-  const bestGK = goalkeeperStats[0]?.gk;
+  // 4. Craque do Campeonato — mais MVPs (gols como critério de desempate)
+  const craqueRanking = [...players]
+    .filter(p => (p.stats?.mvpCount || 0) > 0 || (p.stats?.goals || 0) > 0)
+    .sort((a, b) => {
+      const mvpDiff = (b.stats?.mvpCount || 0) - (a.stats?.mvpCount || 0);
+      if (mvpDiff !== 0) return mvpDiff;
+      return (b.stats?.goals || 0) - (a.stats?.goals || 0);
+    });
+  const craque = craqueRanking[0];
 
-  // 3. Fair Play (Yellow=1, Red=3)
-  const teamFairPlay = clubs.map(club => {
-    const clubPlayers = players.filter(p => p.clubId === club.id);
-    const score = clubPlayers.reduce((acc, p) => acc + (p.stats?.yellowCards || 0) * 1 + (p.stats?.redCards || 0) * 3, 0);
-    return { club, score };
-  }).sort((a, b) => a.score - b.score);
+  // 5. Prêmio Fair Play — só zagueiros e laterais (jogadores de defesa)
+  //    Ranking pelo menor índice de indisciplina (amarelo=1, vermelho=3),
+  //    com mais jogos como critério de desempate.
+  const fairPlayRanking = players
+    .filter(p => DEFENSE_POSITIONS.includes(p.position) && (p.stats?.matches || 0) > 0)
+    .map(p => ({
+      player: p,
+      discipline: (p.stats?.yellowCards || 0) + (p.stats?.redCards || 0) * 3,
+      matches: p.stats?.matches || 0,
+    }))
+    .sort((a, b) => a.discipline !== b.discipline ? a.discipline - b.discipline : b.matches - a.matches);
+  const fairPlayDefender = fairPlayRanking[0];
 
-  const fairPlayTeam = teamFairPlay[0]?.club;
-
-  // 4. MVP (Rating)
-  const mvp = [...players].sort((a, b) => (b.stats?.rating || 0) - (a.stats?.rating || 0))[0];
-
-  const AwardCard = ({ title, icon, player, club, subtitle, value }: { title: string, icon: React.ReactNode, player?: Player, club?: Club, subtitle?: string, value?: string }) => (
+  const AwardCard = ({
+    title, icon, accent, player, subtitle, value, footnote
+  }: {
+    title: string;
+    icon: React.ReactNode;
+    accent: string;
+    player?: Player;
+    subtitle: string;
+    value: string;
+    footnote?: string;
+  }) => (
     <div className="card-utility p-6 bg-white overflow-hidden relative group">
-      <div className="absolute top-0 right-0 w-32 h-32 bg-accent/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl group-hover:bg-accent/10 transition-all duration-700" />
+      <div className={`absolute top-0 right-0 w-32 h-32 ${accent} rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl opacity-30 group-hover:opacity-60 transition-all duration-700`} />
       <div className="flex items-start gap-4 z-10 relative">
-        <div className="p-3 bg-accent/10 text-accent rounded-2xl">{icon}</div>
-        <div className="flex-1">
+        <div className={`p-3 ${accent} rounded-2xl`}>{icon}</div>
+        <div className="flex-1 min-w-0">
           <h4 className="text-[10px] font-black uppercase text-text-muted tracking-widest mb-1">{title}</h4>
           {player ? (
             <div className="flex items-center gap-3 mt-3">
-              <img src={player.photoUrl} className="w-12 h-12 rounded-xl object-cover border border-surface-border" />
-              <div>
-                <p className="font-bold text-primary leading-none uppercase">{player.name}</p>
-                <p className="text-[10px] font-bold text-text-muted mt-1 uppercase tracking-tight">{clubs.find(c => c.id === player.clubId)?.shortName}</p>
-              </div>
-            </div>
-          ) : club ? (
-            <div className="flex items-center gap-3 mt-3">
-              <img src={club.logoUrl} className="w-12 h-12 rounded-xl object-contain border border-surface-border p-2" />
-              <div>
-                <p className="font-bold text-primary leading-none uppercase">{club.name}</p>
-                <p className="text-[10px] font-bold text-text-muted mt-1 uppercase tracking-tight">{club.shortName}</p>
+              <img src={player.photoUrl} className="w-12 h-12 rounded-xl object-cover border border-surface-border" alt="" />
+              <div className="min-w-0">
+                <p className="font-bold text-primary leading-none uppercase truncate">{player.name}</p>
+                <p className="text-[10px] font-bold text-text-muted mt-1 uppercase tracking-tight">
+                  {clubs.find(c => c.id === player.clubId)?.shortName} · {player.position}
+                </p>
               </div>
             </div>
           ) : (
-             <p className="text-[11px] italic text-text-muted mt-4">Dados insuficientes</p>
+            <p className="text-[11px] italic text-text-muted mt-4">Dados insuficientes</p>
           )}
-          {(player || club) && (
-            <div className="mt-4 pt-4 border-t border-surface-border flex justify-between items-center">
-              <span className="text-[10px] font-black text-text-muted uppercase tracking-wider">{subtitle}</span>
-              <span className="text-lg font-black text-accent tabular-nums">{value}</span>
-            </div>
+          {player && (
+            <>
+              <div className="mt-4 pt-4 border-t border-surface-border flex justify-between items-center">
+                <span className="text-[10px] font-black text-text-muted uppercase tracking-wider">{subtitle}</span>
+                <span className="text-lg font-black text-primary tabular-nums">{value}</span>
+              </div>
+              {footnote && (
+                <p className="mt-2 text-[10px] font-medium text-text-muted">{footnote}</p>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -2551,34 +2588,51 @@ function AwardsView({ players, clubs, matches }: { players: Player[], clubs: Clu
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <AwardCard 
-          title="Chuteira de Ouro" 
-          icon={<Trophy size={20} />} 
-          player={topScorer} 
-          subtitle="Gols Marcados" 
-          value={topScorer?.stats?.goals.toString()} 
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+        <AwardCard
+          title="Chuteira de Ouro"
+          icon={<Trophy size={20} className="text-amber-600" />}
+          accent="bg-amber-100 text-amber-700"
+          player={topScorer}
+          subtitle="Gols Marcados"
+          value={(topScorer?.stats?.goals ?? 0).toString()}
+          footnote="Artilheiro do campeonato"
         />
-        <AwardCard 
-          title="Luva de Ouro" 
-          icon={<Shield size={20} />} 
-          player={bestGK} 
-          subtitle="Média de Gols Sofridos" 
-          value={goalkeeperStats[0]?.index.toFixed(2)} 
+        <AwardCard
+          title="Chuteira de Prata"
+          icon={<Award size={20} className="text-neutral-500" />}
+          accent="bg-neutral-200 text-neutral-700"
+          player={topAssister}
+          subtitle="Assistências"
+          value={(topAssister?.stats?.assists ?? 0).toString()}
+          footnote="Maior garçom do campeonato"
         />
-        <AwardCard 
-          title="Prêmio Fair Play" 
-          icon={<CheckCircle size={20} />} 
-          club={fairPlayTeam} 
-          subtitle="Pontos de Indisciplina" 
-          value={teamFairPlay[0]?.score.toString()} 
+        <AwardCard
+          title="Luva de Ouro"
+          icon={<Shield size={20} className="text-blue-600" />}
+          accent="bg-blue-100 text-blue-700"
+          player={bestGK?.gk}
+          subtitle="Gols sofridos / jogo"
+          value={bestGK ? bestGK.ratio.toFixed(2) : '—'}
+          footnote={bestGK ? `${bestGK.goalsAgainst} sofridos em ${bestGK.played} jogos · ${bestGK.cleanSheets} clean sheet(s)` : undefined}
         />
-        <AwardCard 
-          title="Craque do Campeonato" 
-          icon={<Star size={20} />} 
-          player={mvp} 
-          subtitle="Rating Médio" 
-          value={mvp?.stats?.rating.toFixed(1)} 
+        <AwardCard
+          title="Craque do Campeonato"
+          icon={<Star size={20} className="text-accent" fill="currentColor" />}
+          accent="bg-accent/10 text-accent"
+          player={craque}
+          subtitle="MVPs"
+          value={(craque?.stats?.mvpCount ?? 0).toString()}
+          footnote={craque ? `${craque.stats?.goals ?? 0} gol(s) na temporada` : undefined}
+        />
+        <AwardCard
+          title="Prêmio Fair Play"
+          icon={<Heart size={20} className="text-green-600" />}
+          accent="bg-green-100 text-green-700"
+          player={fairPlayDefender?.player}
+          subtitle="Pts de indisciplina"
+          value={fairPlayDefender ? fairPlayDefender.discipline.toString() : '—'}
+          footnote={fairPlayDefender ? `${fairPlayDefender.player.stats?.yellowCards ?? 0} amarelo(s) · ${fairPlayDefender.player.stats?.redCards ?? 0} vermelho(s) em ${fairPlayDefender.matches} jogo(s)` : 'Restrito a zagueiros e laterais'}
         />
       </div>
     </div>

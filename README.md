@@ -329,12 +329,15 @@ Aparece quando `IN_REVIEW` **ou** quando `AWAITING_VALIDATION + 48h expirado`:
 
 **Aba Hall da Fama**
 
-| Prêmio | Critério |
-|---|---|
-| 🥇 Chuteira de Ouro | Artilheiro do campeonato |
-| 🧤 Luva de Ouro | Goleiro com menor média de gols sofridos |
-| 🏅 Fair Play | Time com menor pontuação disciplinar |
-| ⭐ MVP | Atleta com maior média de avaliação |
+| Prêmio | Critério | Desempate |
+|---|---|---|
+| 🥇 Chuteira de Ouro | Jogador com mais **gols** | — |
+| 🥈 Chuteira de Prata | Jogador com mais **assistências** | — |
+| 🧤 Luva de Ouro | Goleiro com menor **gols sofridos / jogos disputados** (proporcional) | Mais clean sheets |
+| ⭐ Craque do Campeonato | Jogador com mais **MVPs** | Mais gols |
+| 🛡️ Prêmio Fair Play | Jogador **de defesa** (ZAG/LD/LE/LAT) com menor índice disciplinar (amarelo=1, vermelho=3) | Mais jogos disputados |
+
+> Cada cartão exibe foto, clube, posição, valor do critério e um rodapé com contexto adicional (ex: gols sofridos × jogos × clean sheets para a Luva de Ouro).
 
 **Narrativa IA (Gemini)**
 
