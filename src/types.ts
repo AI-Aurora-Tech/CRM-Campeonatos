@@ -169,6 +169,7 @@ export interface Match {
   contestReason?: string;
   reportPublishedAt?: string; // ISO — marca início do prazo de 48h
   validations?: MatchValidations;
+  errorConfirmed?: boolean;   // organizador confirmou erro do árbitro durante a revisão
   score?: {
     home: number;
     away: number;

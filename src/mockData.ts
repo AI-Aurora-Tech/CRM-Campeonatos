@@ -261,13 +261,14 @@ export const MOCK_REFEREES: Referee[] = [
   }
 ];
 
+// Pesos usados (10/25/20/25/10/10) — score é a soma ponderada / 100.
 export const MOCK_RATINGS: RefereeRating[] = [
   {
     id: 'rt1',
     matchId: 'm3',
     refereeId: 'r1',
     clubId: 'c1',
-    score: 4.83,
+    score: 4.90, // (5*10 + 5*25 + 5*20 + 5*25 + 4*10 + 5*10) / 100
     comment: 'Excelente condução física e técnica.',
     createdAt: '2026-04-12T12:00:00Z',
     detail: { punctuality: 5, control: 5, rules: 5, impartiality: 5, communication: 4, reportFilling: 5 }
@@ -277,7 +278,7 @@ export const MOCK_RATINGS: RefereeRating[] = [
     matchId: 'm3',
     refereeId: 'r1',
     clubId: 'c3',
-    score: 4.17,
+    score: 4.20, // (4*10 + 4*25 + 5*20 + 4*25 + 4*10 + 4*10) / 100
     comment: 'Apito muito rigoroso, mas justo.',
     createdAt: '2026-04-12T12:10:00Z',
     detail: { punctuality: 4, control: 4, rules: 5, impartiality: 4, communication: 4, reportFilling: 4 }

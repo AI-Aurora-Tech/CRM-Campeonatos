@@ -3390,11 +3390,11 @@ function RefereeDetailView({ referee, matches, ratings, clubs, onBack }: { refer
   const refMatches = matches.filter(m => m.refereeId === referee.id);
   const refRatings = ratings.filter(r => r.refereeId === referee.id);
 
-  // Média geral baseada nas avaliações reais (cai para o campo do árbitro se não houver)
-  const computedAvg = refRatings.length > 0
-    ? refRatings.reduce((s, r) => s + r.score, 0) / refRatings.length
-    : referee.averageRating;
-  const medal = classifyRating(computedAvg);
+  // Score geral ponderado (recência) — 0 quando não há avaliações
+  const computedAvg = computeRefereeGeneralScore(referee.id, matches, ratings);
+  const displayAvg = computedAvg > 0 ? computedAvg : referee.averageRating;
+  const medal = classifyRating(displayAvg);
+  const reliability = computeReliabilityScore(referee.id, matches, ratings);
 
   // Últimas avaliações (mais recentes primeiro)
   const recentRatings = [...refRatings]
@@ -3404,10 +3404,12 @@ function RefereeDetailView({ referee, matches, ratings, clubs, onBack }: { refer
   // Jogos com contestação (qualquer lado contestou)
   const contestedMatches = refMatches.filter(m =>
     m.validations?.home.status === 'CONTESTED' ||
-    m.validations?.away.status === 'CONTESTED'
+    m.validations?.away.status === 'CONTESTED' ||
+    m.errorConfirmed
   );
 
   const medalIconColor = medal === 'OURO' ? 'text-amber-500' : medal === 'PRATA' ? 'text-neutral-400' : 'text-orange-500';
+  const reliabilityColor = reliability >= 80 ? 'text-green-600' : reliability >= 60 ? 'text-amber-600' : 'text-red-600';
 
   return (
     <div className="space-y-8 pb-12">
@@ -3436,9 +3438,9 @@ function RefereeDetailView({ referee, matches, ratings, clubs, onBack }: { refer
         <div className="card-utility flex items-start gap-4">
           <div className="p-3 bg-accent/10 rounded-lg text-accent"><Star size={20} fill="currentColor" /></div>
           <div>
-            <p className="text-[10px] uppercase font-black text-text-muted tracking-widest mb-1">Média Geral</p>
-            <p className="font-black text-[24px] text-primary leading-none">{computedAvg.toFixed(2)}</p>
-            <p className="text-[10px] text-text-muted mt-0.5">{refRatings.length} avaliação(ões)</p>
+            <p className="text-[10px] uppercase font-black text-text-muted tracking-widest mb-1">Score Geral</p>
+            <p className="font-black text-[24px] text-primary leading-none">{displayAvg.toFixed(2)}</p>
+            <p className="text-[10px] text-text-muted mt-0.5">ponderado por recência</p>
           </div>
         </div>
         <div className="card-utility flex items-start gap-4">
@@ -3454,11 +3456,16 @@ function RefereeDetailView({ referee, matches, ratings, clubs, onBack }: { refer
           </div>
         </div>
         <div className="card-utility flex items-start gap-4">
-          <div className="p-3 bg-surface-bg rounded-lg text-primary"><Calendar size={20} /></div>
-          <div>
-            <p className="text-[10px] uppercase font-black text-text-muted tracking-widest mb-1">Partidas Escaladas</p>
-            <p className="font-black text-[24px] text-primary leading-none">{refMatches.length}</p>
-            <p className="text-[10px] text-text-muted mt-0.5">{refMatches.filter(m => m.status === 'FINISHED').length} finalizadas</p>
+          <div className={`p-3 rounded-lg bg-neutral-50 ${reliabilityColor}`}><TrendingUp size={20} /></div>
+          <div className="flex-1">
+            <p className="text-[10px] uppercase font-black text-text-muted tracking-widest mb-1">Confiabilidade</p>
+            <p className={`font-black text-[24px] leading-none ${reliabilityColor}`}>{reliability}<span className="text-[14px] text-text-muted">/100</span></p>
+            <div className="mt-1.5 h-1.5 bg-neutral-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full ${reliability >= 80 ? 'bg-green-500' : reliability >= 60 ? 'bg-amber-500' : 'bg-red-500'}`}
+                style={{ width: `${reliability}%` }}
+              />
+            </div>
           </div>
         </div>
         <div className="card-utility flex items-start gap-4">
@@ -3466,7 +3473,7 @@ function RefereeDetailView({ referee, matches, ratings, clubs, onBack }: { refer
           <div>
             <p className="text-[10px] uppercase font-black text-text-muted tracking-widest mb-1">Contestações</p>
             <p className="font-black text-[24px] text-primary leading-none">{contestedMatches.length}</p>
-            <p className="text-[10px] text-text-muted mt-0.5">jogo(s) com revisão</p>
+            <p className="text-[10px] text-text-muted mt-0.5">{refMatches.filter(m => m.errorConfirmed).length} erro(s) confirmado(s)</p>
           </div>
         </div>
       </div>
@@ -3556,6 +3563,12 @@ function RefereeDetailView({ referee, matches, ratings, clubs, onBack }: { refer
                   const home = clubs.find(c => c.id === m.homeTeamId);
                   const away = clubs.find(c => c.id === m.awayTeamId);
                   const sides: ('home' | 'away')[] = ['home', 'away'];
+                  const matchRatings = ratings.filter(r => r.matchId === m.id);
+                  const rawAvg = matchRatings.length > 0
+                    ? matchRatings.reduce((s, r) => s + r.score, 0) / matchRatings.length
+                    : null;
+                  const penalty = matchPenalty(m);
+                  const finalScore = matchScore(m, ratings);
                   return (
                     <div key={m.id} className="card-utility space-y-3 border-l-4 border-l-red-300">
                       <div className="flex items-start justify-between flex-wrap gap-2">
@@ -3567,16 +3580,33 @@ function RefereeDetailView({ referee, matches, ratings, clubs, onBack }: { refer
                             <Calendar size={10} /> {m.date} {m.time} · {m.location}
                           </p>
                         </div>
-                        <span className={`text-[9px] font-black px-2 py-0.5 rounded border uppercase ${
-                          m.reportStatus === 'IN_REVIEW' ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                          m.reportStatus === 'VALIDATED' ? 'bg-green-50 text-green-700 border-green-200' :
-                          'bg-neutral-50 text-text-muted border-surface-border'
-                        }`}>
-                          {m.reportStatus === 'IN_REVIEW' ? 'Em Revisão' :
-                           m.reportStatus === 'VALIDATED' ? 'Validada' :
-                           m.reportStatus ?? '—'}
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {m.errorConfirmed && (
+                            <span className="text-[9px] font-black px-2 py-0.5 rounded border uppercase bg-red-100 text-red-700 border-red-300">
+                              Erro Confirmado
+                            </span>
+                          )}
+                          <span className={`text-[9px] font-black px-2 py-0.5 rounded border uppercase ${
+                            m.reportStatus === 'IN_REVIEW' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                            m.reportStatus === 'VALIDATED' ? 'bg-green-50 text-green-700 border-green-200' :
+                            'bg-neutral-50 text-text-muted border-surface-border'
+                          }`}>
+                            {m.reportStatus === 'IN_REVIEW' ? 'Em Revisão' :
+                             m.reportStatus === 'VALIDATED' ? 'Validada' :
+                             m.reportStatus ?? '—'}
+                          </span>
+                        </div>
                       </div>
+
+                      {finalScore != null && rawAvg != null && (
+                        <div className="flex items-center gap-3 text-[11px] bg-neutral-50 rounded-lg px-3 py-2 border border-surface-border/60">
+                          <span className="text-text-muted">Média dos clubes: <b className="text-primary">{rawAvg.toFixed(2)}</b></span>
+                          {penalty > 0 && (
+                            <span className="text-red-600 font-bold">− {penalty.toFixed(1)} {m.errorConfirmed ? '(erro confirmado)' : '(contestação)'}</span>
+                          )}
+                          <span className="ml-auto text-text-muted">Score final: <b className="text-primary">{finalScore.toFixed(2)}</b></span>
+                        </div>
+                      )}
 
                       <div className="space-y-2 pt-2 border-t border-dotted border-surface-border">
                         {sides.filter(s => m.validations?.[s].status === 'CONTESTED').map(side => {
@@ -4309,6 +4339,16 @@ function MatchReportView({
 }
 
 // ── Helpers de avaliação de árbitro ────────────────────────────────────────
+// Pesos por critério (somam 100). Definem o score ponderado de uma avaliação.
+const RATING_WEIGHTS: Record<keyof RefereeRatingDetail, number> = {
+  punctuality:   10,
+  control:       25,
+  rules:         20,
+  impartiality:  25,
+  communication: 10,
+  reportFilling: 10,
+};
+
 const RATING_CRITERIA: { key: keyof RefereeRatingDetail; label: string }[] = [
   { key: 'punctuality',   label: 'Pontualidade' },
   { key: 'control',       label: 'Controle da partida' },
@@ -4318,9 +4358,72 @@ const RATING_CRITERIA: { key: keyof RefereeRatingDetail; label: string }[] = [
   { key: 'reportFilling', label: 'Preenchimento da súmula' },
 ];
 
+// Score ponderado de uma avaliação individual (escala 1–5).
 function averageRatingDetail(d: RefereeRatingDetail): number {
-  const sum = d.punctuality + d.control + d.rules + d.impartiality + d.communication + d.reportFilling;
-  return Number((sum / 6).toFixed(2));
+  const sum =
+    d.punctuality   * RATING_WEIGHTS.punctuality   +
+    d.control       * RATING_WEIGHTS.control       +
+    d.rules         * RATING_WEIGHTS.rules         +
+    d.impartiality  * RATING_WEIGHTS.impartiality  +
+    d.communication * RATING_WEIGHTS.communication +
+    d.reportFilling * RATING_WEIGHTS.reportFilling;
+  return Number((sum / 100).toFixed(2));
+}
+
+// Penalidade aplicada ao score do jogo (na escala 1–5).
+// Erro confirmado prevalece sobre contestação simples.
+function matchPenalty(m: Match): number {
+  if (m.errorConfirmed) return 0.5;
+  if (m.validations?.home.status === 'CONTESTED' || m.validations?.away.status === 'CONTESTED') return 0.3;
+  return 0;
+}
+
+// Score do jogo = média das avaliações dos clubes − penalidade. Limitado a [1, 5].
+function matchScore(m: Match, ratings: RefereeRating[]): number | null {
+  const matchRatings = ratings.filter(r => r.matchId === m.id);
+  if (matchRatings.length === 0) return null;
+  const avg = matchRatings.reduce((s, r) => s + r.score, 0) / matchRatings.length;
+  return Math.max(1, Number((avg - matchPenalty(m)).toFixed(2)));
+}
+
+// Score geral do árbitro com peso linear maior para jogos recentes.
+// Mais antigo recebe peso 1; mais recente recebe peso N.
+function computeRefereeGeneralScore(refereeId: string, matches: Match[], ratings: RefereeRating[]): number {
+  const refMatches = matches
+    .filter(m => m.refereeId === refereeId && m.status === 'FINISHED')
+    .sort((a, b) => `${a.date}T${a.time || '00:00'}`.localeCompare(`${b.date}T${b.time || '00:00'}`));
+  const scored: { score: number; weight: number }[] = [];
+  refMatches.forEach((m, idx) => {
+    const s = matchScore(m, ratings);
+    if (s != null) scored.push({ score: s, weight: idx + 1 });
+  });
+  if (scored.length === 0) return 0;
+  const total  = scored.reduce((acc, x) => acc + x.score * x.weight, 0);
+  const totalW = scored.reduce((acc, x) => acc + x.weight, 0);
+  return Number((total / totalW).toFixed(2));
+}
+
+// Confiabilidade (0–100): 40% média geral + 30% % sem contestação + 30% % avaliações completas.
+function computeReliabilityScore(refereeId: string, matches: Match[], ratings: RefereeRating[]): number {
+  const refMatches = matches.filter(m => m.refereeId === refereeId && m.status === 'FINISHED');
+  const refRatings = ratings.filter(r => r.refereeId === refereeId);
+  if (refMatches.length === 0 && refRatings.length === 0) return 0;
+
+  const general  = computeRefereeGeneralScore(refereeId, matches, ratings);
+  const avgNorm  = general > 0 ? Math.max(0, Math.min(100, ((general - 1) / 4) * 100)) : 0;
+
+  const noContestPct = refMatches.length > 0
+    ? (refMatches.filter(m =>
+        m.validations?.home.status !== 'CONTESTED' &&
+        m.validations?.away.status !== 'CONTESTED'
+      ).length / refMatches.length) * 100
+    : 100;
+
+  const completePct = refRatings.length > 0
+    ? (refRatings.filter(r => !!r.detail).length / refRatings.length) * 100
+    : 0;
+
+  return Math.round(avgNorm * 0.4 + noContestPct * 0.3 + completePct * 0.3);
 }
 
 function classifyRating(score: number): RefereeClassification {
@@ -4384,7 +4487,7 @@ function ValidationCenterView({
   referees: Referee[];
   ratings: RefereeRating[];
   onSubmitValidation: (matchId: string, side: 'home' | 'away', decision: 'ACCEPT' | 'CONTEST', detail: RefereeRatingDetail, contest?: ContestRecord) => void;
-  onOrganizerResolve: (matchId: string, action: 'VALIDATE' | 'REOPEN') => void;
+  onOrganizerResolve: (matchId: string, action: 'VALIDATE' | 'REOPEN' | 'CONFIRM_ERROR') => void;
 }) {
   type ModalCtx = { matchId: string; side: 'home' | 'away' } | null;
   const [modalCtx, setModalCtx] = useState<ModalCtx>(null);
@@ -4604,13 +4707,22 @@ function ValidationCenterView({
                       : 'Prazo de 48h expirado sem decisão de todos os clubes. Ação manual do organizador liberada para validar a súmula ou reabrir o ciclo.'}
                   </span>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   <button
                     onClick={() => onOrganizerResolve(m.id, 'REOPEN')}
                     className="px-3 py-1.5 bg-neutral-100 text-text-main text-[10px] font-black uppercase rounded-lg hover:bg-neutral-200 flex items-center gap-1.5"
                   >
                     <RefreshCw size={12} /> Reabrir
                   </button>
+                  {m.reportStatus === 'IN_REVIEW' && (
+                    <button
+                      onClick={() => onOrganizerResolve(m.id, 'CONFIRM_ERROR')}
+                      className="px-3 py-1.5 bg-red-500 text-white text-[10px] font-black uppercase rounded-lg hover:brightness-110 flex items-center gap-1.5"
+                      title="Validar a súmula confirmando o erro do árbitro (penalidade −0.5 no score)"
+                    >
+                      <ShieldAlert size={12} /> Confirmar Erro
+                    </button>
+                  )}
                   <button
                     onClick={() => onOrganizerResolve(m.id, 'VALIDATE')}
                     className="px-3 py-1.5 bg-primary text-white text-[10px] font-black uppercase rounded-lg hover:brightness-110 flex items-center gap-1.5"
@@ -5132,11 +5244,11 @@ function App() {
       const updatedRatings = [...ratings, newRating];
       setRatings(updatedRatings);
 
-      // Atualiza média do árbitro com base em todas as avaliações dele
-      const refRatings = updatedRatings.filter(r => r.refereeId === match.refereeId);
-      const refAvg = refRatings.reduce((s, r) => s + r.score, 0) / refRatings.length;
+      // Atualiza média do árbitro usando o score geral ponderado por recência
+      // (média dos clubes por jogo − penalidades, com peso maior para jogos recentes)
+      const refAvg = computeRefereeGeneralScore(match.refereeId, matches, updatedRatings);
       setReferees(prev => prev.map(r => r.id === match.refereeId
-        ? { ...r, averageRating: Number(refAvg.toFixed(2)) }
+        ? { ...r, averageRating: refAvg }
         : r));
     }
 
@@ -5159,10 +5271,12 @@ function App() {
     }));
   };
 
-  const handleOrganizerResolve = (matchId: string, action: 'VALIDATE' | 'REOPEN') => {
+  const handleOrganizerResolve = (matchId: string, action: 'VALIDATE' | 'REOPEN' | 'CONFIRM_ERROR') => {
+    const target = matches.find(m => m.id === matchId);
     setMatches(prev => prev.map(m => {
       if (m.id !== matchId) return m;
-      if (action === 'VALIDATE') return { ...m, reportStatus: 'VALIDATED' };
+      if (action === 'VALIDATE')      return { ...m, reportStatus: 'VALIDATED' };
+      if (action === 'CONFIRM_ERROR') return { ...m, reportStatus: 'VALIDATED', errorConfirmed: true };
       // Reopen — limpa decisões para que os clubes refaçam
       return {
         ...m,
@@ -5171,6 +5285,18 @@ function App() {
         reportPublishedAt: new Date().toISOString(),
       };
     }));
+    // Recalcula score do árbitro após mudanças nas penalidades
+    if (target?.refereeId) {
+      const projectedMatches = matches.map(m => {
+        if (m.id !== matchId) return m;
+        if (action === 'CONFIRM_ERROR') return { ...m, errorConfirmed: true };
+        return m;
+      });
+      const refAvg = computeRefereeGeneralScore(target.refereeId, projectedMatches, ratings);
+      setReferees(prev => prev.map(r => r.id === target.refereeId
+        ? { ...r, averageRating: refAvg }
+        : r));
+    }
   };
 
   return (
