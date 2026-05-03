@@ -19,16 +19,17 @@ Sistema completo de gestão de ligas e campeonatos de futebol amador. Cobre todo
    - [Campos & Sedes](#campos--sedes)
    - [Documentos & Elegibilidade](#documentos--elegibilidade)
    - [Financeiro](#financeiro)
-   - [Súmula Pós-Jogo](#súmula-pós-jogo)
+   - [Central de Validação Pós-Jogo](#central-de-validação-pós-jogo)
    - [Relatórios & Analytics](#relatórios--analytics)
    - [Automações & Alertas](#automações--alertas)
    - [Mídia & Galeria](#mídia--galeria)
    - [Portal Público](#portal-público)
 5. [Fluxo Completo de uma Partida](#fluxo-completo-de-uma-partida)
-6. [Modelo de Dados](#modelo-de-dados)
-7. [Integração Supabase](#integração-supabase)
-8. [Rotas](#rotas)
-9. [Scripts npm](#scripts-npm)
+6. [Algoritmo de Score do Árbitro](#algoritmo-de-score-do-árbitro)
+7. [Modelo de Dados](#modelo-de-dados)
+8. [Integração Supabase](#integração-supabase)
+9. [Rotas](#rotas)
+10. [Scripts npm](#scripts-npm)
 
 ---
 
@@ -145,11 +146,21 @@ Gestão detalhada de jogadores.
 
 ### Árbitros
 
-- Três níveis: **PRATA**, **OURO** e **ELITE**
+- Três níveis de cadastro: **PRATA**, **OURO** e **ELITE**
 - Disponibilidade (disponível / indisponível) com indicador visual
-- Estatísticas: partidas apitadas e média de avaliação (1–5)
-- Avaliações por clube com nota e comentário por partida
 - **Calendário**: visão de quais árbitros apitam quais jogos
+
+**Histórico do Árbitro** (ficha individual):
+
+- **Score Geral** ponderado por recência (escala 1–5)
+- **Medalha Atual** derivada do score: 🥉 Bronze (1–2.9) · 🥈 Prata (3–4.2) · 🥇 Ouro (4.3–5)
+- **Confiabilidade (0–100)** combinando média + % sem contestação + % avaliações completas
+- Total de partidas escaladas / finalizadas
+- Total de **contestações** + erros confirmados pelo organizador
+- **Últimas avaliações** com breakdown dos 6 critérios (quando disponível)
+- **Jogos com contestação**: tipo (gol/cartão/etc), descrição, sugestão de correção e cálculo do score final do jogo (média dos clubes − penalidade)
+
+> A fórmula completa está em [Algoritmo de Score do Árbitro](#algoritmo-de-score-do-árbitro).
 
 ---
 
@@ -248,13 +259,60 @@ Fluxo de aprovação documental dos atletas.
 
 ---
 
-### Súmula Pós-Jogo
+### Central de Validação Pós-Jogo
 
-- Selecione uma partida encerrada para ver o resumo completo
-- Placar final, linha de eventos e escalações confirmadas
-- **Aprovar** → `reportStatus = APPROVED`
-- **Contestar** → campo de justificativa → `reportStatus = CONTESTED`
-- Partidas contestadas ficam marcadas para revisão
+Fluxo completo de validação após o árbitro publicar a súmula. Cada clube avalia o árbitro **e** decide aceitar ou contestar.
+
+**Estados da súmula**
+
+```
+AWAITING_VALIDATION → IN_REVIEW → VALIDATED
+```
+
+| Status | Significado |
+|---|---|
+| `AWAITING_VALIDATION` | Súmula publicada, aguardando decisão dos clubes (prazo 48h) |
+| `IN_REVIEW` | Pelo menos um clube contestou — organizador precisa decidir |
+| `VALIDATED` | Ambos aceitaram **ou** organizador validou manualmente |
+
+**Disparo automático**
+
+Quando o árbitro finaliza a partida no Match Center:
+1. `reportStatus` vira `AWAITING_VALIDATION`
+2. `reportPublishedAt` é registrado (início do prazo de 48h)
+3. Cada clube recebe uma notificação `REPORT_VALIDATION_PENDING` por e-mail
+4. A pendência aparece no painel do clube (chip "Súmula(s) p/ Validar") e na Central de Validação
+
+**Decisão do clube (modal em 2 etapas)**
+
+1. **Avaliação obrigatória** dos 6 critérios (1–5 estrelas) — ver [Algoritmo de Score do Árbitro](#algoritmo-de-score-do-árbitro)
+2. **Aceitar** ou **Contestar** (tipo: gol / cartão / substituição / placar / outro · descrição · sugestão de correção)
+
+**Bloqueio anti-duplicidade**
+
+Cada clube avalia o árbitro **uma única vez por partida**. Se o organizador reabrir o ciclo, a avaliação anterior é reaproveitada e o modal pula para a etapa de decisão.
+
+**Resolução automática**
+
+| Decisões dos clubes | Resultado |
+|---|---|
+| Ambos aceitaram | `VALIDATED` automaticamente |
+| Algum contestou | `IN_REVIEW` — organizador decide |
+
+**Painel do organizador**
+
+Aparece quando `IN_REVIEW` **ou** quando `AWAITING_VALIDATION + 48h expirado`:
+
+| Botão | Efeito |
+|---|---|
+| **Reabrir** | Limpa decisões, reinicia prazo de 48h |
+| **Validar Decisão** | Marca como `VALIDATED` sem confirmar erro |
+| **Confirmar Erro** (só em `IN_REVIEW`) | Valida + marca `errorConfirmed=true` (penalidade −0.5 no score do árbitro) |
+
+**Prazo de 48h**
+
+- Countdown ao vivo no card (`Xh Ym restantes`)
+- Após expirar: badge vermelho **Expirado** no card e nas pills dos clubes pendentes; ações manuais do organizador são liberadas
 
 ---
 
@@ -359,10 +417,116 @@ Página sem autenticação para divulgação de resultados. Link gerado na tela 
    Laudo PENDENTE aguarda aprovação
    Admin aprova ou contesta com justificativa
 
-9. Analytics & Portal
-   Estatísticas, gráficos e Hall da Fama atualizados automaticamente
-   Portal público reflete os novos resultados
+9. Validação Pós-Jogo
+   reportStatus = AWAITING_VALIDATION, prazo de 48h, e-mail aos clubes
+   Cada clube avalia árbitro (obrigatório) → aceita ou contesta
+   Ambos aceitam → VALIDATED | Contestação → IN_REVIEW (organizador decide)
+
+10. Analytics & Portal
+    Estatísticas, gráficos e Hall da Fama atualizados automaticamente
+    Portal público reflete os novos resultados
 ```
+
+---
+
+## Algoritmo de Score do Árbitro
+
+O score do árbitro é construído em quatro camadas: **avaliação individual → score do jogo → score geral → confiabilidade**. As penalidades de contestação e erro confirmado são aplicadas no score do jogo.
+
+### 1. Avaliação individual (peso por critério)
+
+Cada clube avalia 6 critérios (1–5 estrelas). Os pesos somam 100:
+
+| Critério | Peso |
+|---|---|
+| Pontualidade | 10 |
+| Controle da partida | 25 |
+| Aplicação das regras | 20 |
+| Imparcialidade | 25 |
+| Comunicação | 10 |
+| Preenchimento da súmula | 10 |
+| **Total** | **100** |
+
+```
+score_avaliação =
+  (pontualidade·10 + controle·25 + regras·20 + imparcialidade·25
+   + comunicação·10 + súmula·10) / 100
+```
+
+Resultado na escala 1–5. Implementado em `averageRatingDetail()` (`src/App.tsx`).
+
+**Exemplo:** notas (5, 5, 5, 5, 4, 5) → `(50 + 125 + 100 + 125 + 40 + 50) / 100 = 4.90`.
+
+### 2. Score do jogo (média dos clubes − penalidade)
+
+Para cada partida, a média dos scores de todos os clubes que avaliaram, **menos a penalidade aplicável**:
+
+```
+score_jogo = max(1, média(scores_avaliação_dos_clubes) − penalidade)
+```
+
+| Situação | Penalidade |
+|---|---|
+| Sem contestação | 0.0 |
+| Pelo menos uma contestação (`IN_REVIEW`) | **−0.3** |
+| Erro confirmado pelo organizador (`errorConfirmed`) | **−0.5** (prevalece sobre contestação) |
+
+Implementado em `matchPenalty()` e `matchScore()`.
+
+### 3. Score geral (peso maior para jogos recentes)
+
+Média ponderada por recência. Ordenando os jogos finalizados do mais antigo ao mais recente, o índice serve como peso (mais antigo = peso 1, mais recente = peso N):
+
+```
+score_geral = Σ(score_jogo_i · i) / Σ(i)        (i = 1..N, do mais antigo ao mais novo)
+```
+
+Implementado em `computeRefereeGeneralScore()`. Atualiza `referee.averageRating` automaticamente após cada nova avaliação ou ação do organizador.
+
+### 4. Classificação (medalha)
+
+Faixas aplicadas ao **score geral**:
+
+| Medalha | Faixa |
+|---|---|
+| 🥉 **Bronze** | 1.0 – 2.9 |
+| 🥈 **Prata** | 3.0 – 4.2 |
+| 🥇 **Ouro** | 4.3 – 5.0 |
+
+Implementado em `classifyRating()`.
+
+### 5. Confiabilidade (0–100)
+
+Combina performance, consistência e profundidade das avaliações recebidas:
+
+```
+score_norm   = ((score_geral − 1) / 4) · 100        (normaliza 1–5 → 0–100)
+sem_contest% = (jogos sem contestação / total)  · 100
+completas%   = (avaliações com 6 critérios / total) · 100
+
+confiabilidade = round( score_norm · 0.4
+                      + sem_contest% · 0.3
+                      + completas%   · 0.3 )
+```
+
+| Faixa | Indicador na UI |
+|---|---|
+| ≥ 80 | 🟢 Verde |
+| 60 – 79 | 🟡 Âmbar |
+| < 60 | 🔴 Vermelho |
+
+Implementado em `computeReliabilityScore()`.
+
+### Resumo das funções
+
+| Função (`src/App.tsx`) | Saída |
+|---|---|
+| `averageRatingDetail(detail)` | Score ponderado de uma avaliação individual (1–5) |
+| `matchPenalty(match)` | 0 / 0.3 / 0.5 |
+| `matchScore(match, ratings)` | Score final do jogo (1–5) ou `null` se sem avaliações |
+| `computeRefereeGeneralScore(refereeId, matches, ratings)` | Score geral ponderado por recência (1–5) |
+| `computeReliabilityScore(refereeId, matches, ratings)` | Confiabilidade (0–100) |
+| `classifyRating(score)` | `'BRONZE' \| 'PRATA' \| 'OURO'` |
 
 ---
 
@@ -392,7 +556,19 @@ Championship         — edição do campeonato (regras, formato, status)
 | `currentMinute` | Minuto atual / final da partida |
 | `mvpPlayerId` | ID do jogador eleito MVP |
 | `minutesPlayed` | Mapa `{ playerId: minutos }` calculado ao encerrar |
-| `reportStatus` | PENDING / APPROVED / CONTESTED |
+| `reportStatus` | `PENDING` / `APPROVED` / `CONTESTED` (legado) ou `AWAITING_VALIDATION` / `IN_REVIEW` / `VALIDATED` (novo fluxo) |
+| `reportPublishedAt` | ISO da publicação da súmula — referência para o prazo de 48h |
+| `validations` | Estado por clube: `{ home, away }` cada um com `status` (PENDING/ACCEPTED/CONTESTED), `ratingId`, `contest` e `decidedAt` |
+| `errorConfirmed` | `true` quando o organizador confirma o erro contestado (penalidade −0.5 no score do árbitro) |
+
+**Campos notáveis em `RefereeRating`**
+
+| Campo | Descrição |
+|---|---|
+| `score` | Score ponderado da avaliação (1–5) — ver [Algoritmo de Score do Árbitro](#algoritmo-de-score-do-árbitro) |
+| `detail` | Notas dos 6 critérios (`punctuality`, `control`, `rules`, `impartiality`, `communication`, `reportFilling`) |
+| `comment` | Observação livre |
+| `createdAt` | ISO usado para ordenar as avaliações mais recentes |
 
 **Campos notáveis em `Player.stats`**
 
