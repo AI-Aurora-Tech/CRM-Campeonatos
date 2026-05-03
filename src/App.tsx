@@ -3390,6 +3390,25 @@ function RefereeDetailView({ referee, matches, ratings, clubs, onBack }: { refer
   const refMatches = matches.filter(m => m.refereeId === referee.id);
   const refRatings = ratings.filter(r => r.refereeId === referee.id);
 
+  // Média geral baseada nas avaliações reais (cai para o campo do árbitro se não houver)
+  const computedAvg = refRatings.length > 0
+    ? refRatings.reduce((s, r) => s + r.score, 0) / refRatings.length
+    : referee.averageRating;
+  const medal = classifyRating(computedAvg);
+
+  // Últimas avaliações (mais recentes primeiro)
+  const recentRatings = [...refRatings]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, 5);
+
+  // Jogos com contestação (qualquer lado contestou)
+  const contestedMatches = refMatches.filter(m =>
+    m.validations?.home.status === 'CONTESTED' ||
+    m.validations?.away.status === 'CONTESTED'
+  );
+
+  const medalIconColor = medal === 'OURO' ? 'text-amber-500' : medal === 'PRATA' ? 'text-neutral-400' : 'text-orange-500';
+
   return (
     <div className="space-y-8 pb-12">
       <div className="flex items-center gap-4">
@@ -3412,9 +3431,188 @@ function RefereeDetailView({ referee, matches, ratings, clubs, onBack }: { refer
         </div>
       </div>
 
+      {/* ── Histórico do Árbitro: Resumo ─────────────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="card-utility flex items-start gap-4">
+          <div className="p-3 bg-accent/10 rounded-lg text-accent"><Star size={20} fill="currentColor" /></div>
+          <div>
+            <p className="text-[10px] uppercase font-black text-text-muted tracking-widest mb-1">Média Geral</p>
+            <p className="font-black text-[24px] text-primary leading-none">{computedAvg.toFixed(2)}</p>
+            <p className="text-[10px] text-text-muted mt-0.5">{refRatings.length} avaliação(ões)</p>
+          </div>
+        </div>
+        <div className="card-utility flex items-start gap-4">
+          <div className={`p-3 bg-neutral-50 rounded-lg ${medalIconColor}`}><Award size={20} /></div>
+          <div>
+            <p className="text-[10px] uppercase font-black text-text-muted tracking-widest mb-1">Medalha Atual</p>
+            <span className={`text-[12px] font-black px-2 py-1 rounded border uppercase tracking-tight ${classificationStyle(medal)}`}>
+              {medal}
+            </span>
+            <p className="text-[10px] text-text-muted mt-1">
+              {medal === 'OURO' ? '4.3 a 5.0' : medal === 'PRATA' ? '3.0 a 4.2' : '1.0 a 2.9'}
+            </p>
+          </div>
+        </div>
+        <div className="card-utility flex items-start gap-4">
+          <div className="p-3 bg-surface-bg rounded-lg text-primary"><Calendar size={20} /></div>
+          <div>
+            <p className="text-[10px] uppercase font-black text-text-muted tracking-widest mb-1">Partidas Escaladas</p>
+            <p className="font-black text-[24px] text-primary leading-none">{refMatches.length}</p>
+            <p className="text-[10px] text-text-muted mt-0.5">{refMatches.filter(m => m.status === 'FINISHED').length} finalizadas</p>
+          </div>
+        </div>
+        <div className="card-utility flex items-start gap-4">
+          <div className={`p-3 rounded-lg ${contestedMatches.length > 0 ? 'bg-red-50 text-red-600' : 'bg-neutral-50 text-text-muted'}`}><ShieldAlert size={20} /></div>
+          <div>
+            <p className="text-[10px] uppercase font-black text-text-muted tracking-widest mb-1">Contestações</p>
+            <p className="font-black text-[24px] text-primary leading-none">{contestedMatches.length}</p>
+            <p className="text-[10px] text-text-muted mt-0.5">jogo(s) com revisão</p>
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-8">
-          {/* Histórico Recente */}
+          {/* Últimas Avaliações */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-[11px] font-black uppercase tracking-[0.2em] text-text-muted pl-1">Últimas Avaliações</h3>
+              <span className="text-[10px] font-bold text-text-muted">Mostrando {recentRatings.length} de {refRatings.length}</span>
+            </div>
+
+            {recentRatings.length === 0 ? (
+              <div className="card-utility text-center py-10 text-text-muted text-[12px] font-medium italic">
+                Nenhuma avaliação registrada ainda.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4">
+                {recentRatings.map(r => {
+                  const club = clubs.find(c => c.id === r.clubId);
+                  const matchOfRating = matches.find(m => m.id === r.matchId);
+                  const home = matchOfRating ? clubs.find(c => c.id === matchOfRating.homeTeamId) : null;
+                  const away = matchOfRating ? clubs.find(c => c.id === matchOfRating.awayTeamId) : null;
+                  const cls = classifyRating(r.score);
+                  return (
+                    <div key={r.id} className="card-utility space-y-3">
+                      <div className="flex items-start justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-3">
+                          <img src={club?.logoUrl} className="w-8 h-8 rounded-lg border border-surface-border bg-white p-0.5" alt="" />
+                          <div>
+                            <p className="text-[12px] font-bold text-primary leading-tight">{club?.name ?? '—'}</p>
+                            {matchOfRating && (
+                              <p className="text-[10px] text-text-muted font-medium">
+                                {home?.shortName} {matchOfRating.score?.home ?? '-'} x {matchOfRating.score?.away ?? '-'} {away?.shortName} · {matchOfRating.date}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[9px] font-black px-2 py-0.5 rounded border uppercase ${classificationStyle(cls)}`}>{cls}</span>
+                          <div className="flex items-center gap-1 text-accent">
+                            <Star size={12} fill="currentColor" />
+                            <span className="text-[12px] font-black">{r.score.toFixed(2)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {r.detail ? (
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 pt-2 border-t border-dotted border-surface-border">
+                          {RATING_CRITERIA.map(c => (
+                            <div key={c.key} className="flex items-center justify-between bg-neutral-50 rounded-lg px-3 py-1.5">
+                              <span className="text-[10px] font-bold text-text-muted">{c.label}</span>
+                              <span className="text-[11px] font-black text-primary">{r.detail![c.key]}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        r.comment && (
+                          <p className="text-[12px] text-text-muted italic border-t border-dotted border-surface-border pt-2">"{r.comment}"</p>
+                        )
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          {/* Jogos com Contestação */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-[11px] font-black uppercase tracking-[0.2em] text-text-muted pl-1">Jogos com Contestação</h3>
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase ${contestedMatches.length > 0 ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-neutral-50 text-text-muted border border-surface-border'}`}>
+                {contestedMatches.length}
+              </span>
+            </div>
+
+            {contestedMatches.length === 0 ? (
+              <div className="card-utility text-center py-10 text-text-muted text-[12px] font-medium italic flex flex-col items-center gap-2">
+                <CheckCircle size={20} className="text-green-500" />
+                Nenhuma contestação registrada para este árbitro.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {contestedMatches.map(m => {
+                  const home = clubs.find(c => c.id === m.homeTeamId);
+                  const away = clubs.find(c => c.id === m.awayTeamId);
+                  const sides: ('home' | 'away')[] = ['home', 'away'];
+                  return (
+                    <div key={m.id} className="card-utility space-y-3 border-l-4 border-l-red-300">
+                      <div className="flex items-start justify-between flex-wrap gap-2">
+                        <div>
+                          <p className="font-bold text-[13px] text-primary">
+                            {home?.shortName} {m.score?.home ?? 0} x {m.score?.away ?? 0} {away?.shortName}
+                          </p>
+                          <p className="text-[10px] text-text-muted font-medium flex items-center gap-1.5 mt-0.5">
+                            <Calendar size={10} /> {m.date} {m.time} · {m.location}
+                          </p>
+                        </div>
+                        <span className={`text-[9px] font-black px-2 py-0.5 rounded border uppercase ${
+                          m.reportStatus === 'IN_REVIEW' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                          m.reportStatus === 'VALIDATED' ? 'bg-green-50 text-green-700 border-green-200' :
+                          'bg-neutral-50 text-text-muted border-surface-border'
+                        }`}>
+                          {m.reportStatus === 'IN_REVIEW' ? 'Em Revisão' :
+                           m.reportStatus === 'VALIDATED' ? 'Validada' :
+                           m.reportStatus ?? '—'}
+                        </span>
+                      </div>
+
+                      <div className="space-y-2 pt-2 border-t border-dotted border-surface-border">
+                        {sides.filter(s => m.validations?.[s].status === 'CONTESTED').map(side => {
+                          const cv = m.validations![side];
+                          const club = side === 'home' ? home : away;
+                          return (
+                            <div key={side} className="flex items-start gap-3 bg-red-50/50 border border-red-100 rounded-lg p-3">
+                              <img src={club?.logoUrl} className="w-7 h-7 rounded-md border border-surface-border bg-white p-0.5 shrink-0" alt="" />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap mb-1">
+                                  <span className="text-[11px] font-bold text-primary">{club?.name}</span>
+                                  {cv.contest && (
+                                    <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-red-100 text-red-700 uppercase">
+                                      {CONTEST_TYPES.find(t => t.value === cv.contest!.type)?.label}
+                                    </span>
+                                  )}
+                                </div>
+                                {cv.contest && (
+                                  <>
+                                    <p className="text-[11px] text-text-main"><b>Descrição:</b> {cv.contest.description}</p>
+                                    <p className="text-[11px] text-text-muted"><b>Sugestão:</b> {cv.contest.suggestion}</p>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          {/* Partidas Escaladas */}
           <section className="space-y-4">
             <h3 className="text-[11px] font-black uppercase tracking-[0.2em] text-text-muted pl-1">Partidas Escaladas ({refMatches.length})</h3>
             <div className="space-y-3">
@@ -3443,45 +3641,6 @@ function RefereeDetailView({ referee, matches, ratings, clubs, onBack }: { refer
               ))}
             </div>
           </section>
-
-          {/* Avaliações */}
-          <section className="space-y-4">
-             <div className="flex items-center justify-between">
-               <h3 className="text-[11px] font-black uppercase tracking-[0.2em] text-text-muted pl-1">Avaliações dos Clubes (Scout)</h3>
-               <div className="flex items-center gap-1.5 bg-accent/5 px-3 py-1 rounded-full text-accent font-bold text-sm">
-                 <Star size={14} fill="currentColor" /> {referee.averageRating} Avg
-               </div>
-             </div>
-             
-             <div className="grid grid-cols-1 gap-4">
-               {refRatings.map(r => (
-                 <div key={r.id} className="p-6 bg-neutral-900 text-white rounded-2xl relative overflow-hidden">
-                   <div className="relative z-10">
-                     <div className="flex justify-between items-start mb-4">
-                       <div className="flex items-center gap-3">
-                         <img src={clubs.find(c => c.id === r.clubId)?.logoUrl} className="w-8 h-8 rounded-lg bg-white p-1" />
-                         <div>
-                            <p className="text-[11px] font-black uppercase text-white/50 leading-none mb-1">{clubs.find(c => c.id === r.clubId)?.name}</p>
-                            <div className="flex gap-0.5">
-                              {[1,2,3,4,5].map(s => (
-                                <Star key={s} size={10} fill={s <= r.score ? "#4caf50" : "none"} stroke={s <= r.score ? "#4caf50" : "rgba(255,255,255,0.2)"} />
-                              ))}
-                            </div>
-                         </div>
-                       </div>
-                       <span className="text-[10px] text-white/30 font-mono italic">{r.createdAt.split('T')[0]}</span>
-                     </div>
-                     <p className="text-[13px] font-medium leading-relaxed italic text-white/80">
-                       "{r.comment || 'Nenhuma observação técnica enviada.'}"
-                     </p>
-                   </div>
-                   <div className="absolute top-0 right-0 p-8 opacity-5 scale-150 rotate-12">
-                     <CheckCircle size={120} />
-                   </div>
-                 </div>
-               ))}
-             </div>
-          </section>
         </div>
 
         <div className="space-y-6">
@@ -3498,7 +3657,7 @@ function RefereeDetailView({ referee, matches, ratings, clubs, onBack }: { refer
                </div>
             </div>
           </div>
-          
+
           <div className="p-6 bg-white border-2 border-dashed border-surface-border rounded-2xl flex flex-col items-center text-center">
             <div className="w-12 h-12 bg-neutral-100 rounded-full flex items-center justify-center mb-3">
                <Plus size={20} className="text-text-muted" />

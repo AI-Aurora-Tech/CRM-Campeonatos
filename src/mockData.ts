@@ -262,8 +262,26 @@ export const MOCK_REFEREES: Referee[] = [
 ];
 
 export const MOCK_RATINGS: RefereeRating[] = [
-  { id: 'rt1', matchId: 'm3', refereeId: 'r1', clubId: 'c1', score: 5, comment: 'Excelente condução física e técnica.', createdAt: '2026-04-12T12:00:00Z' },
-  { id: 'rt2', matchId: 'm3', refereeId: 'r1', clubId: 'c3', score: 4, comment: 'Apito muito rigoroso, mas justo.', createdAt: '2026-04-12T12:10:00Z' }
+  {
+    id: 'rt1',
+    matchId: 'm3',
+    refereeId: 'r1',
+    clubId: 'c1',
+    score: 4.83,
+    comment: 'Excelente condução física e técnica.',
+    createdAt: '2026-04-12T12:00:00Z',
+    detail: { punctuality: 5, control: 5, rules: 5, impartiality: 5, communication: 4, reportFilling: 5 }
+  },
+  {
+    id: 'rt2',
+    matchId: 'm3',
+    refereeId: 'r1',
+    clubId: 'c3',
+    score: 4.17,
+    comment: 'Apito muito rigoroso, mas justo.',
+    createdAt: '2026-04-12T12:10:00Z',
+    detail: { punctuality: 4, control: 4, rules: 5, impartiality: 4, communication: 4, reportFilling: 4 }
+  }
 ];
 
 export const MOCK_VENUES: Venue[] = [
@@ -314,6 +332,34 @@ export const MOCK_MATCHES: Match[] = [
     validations: {
       home: { status: 'PENDING' },
       away: { status: 'PENDING' }
+    }
+  },
+  {
+    id: 'm7',
+    championshipId: 'ch1',
+    homeTeamId: 'c3',
+    awayTeamId: 'c2',
+    date: '2026-04-18',
+    time: '15:00',
+    location: 'Campo do XV',
+    venueId: 'v1',
+    status: 'FINISHED',
+    refereeId: 'r1',
+    score: { home: 2, away: 2 },
+    reportStatus: 'IN_REVIEW',
+    reportPublishedAt: '2026-04-18T17:00:00Z',
+    validations: {
+      home: { status: 'ACCEPTED', ratingId: 'rt-m7-c3', decidedAt: '2026-04-18T20:00:00Z' },
+      away: {
+        status: 'CONTESTED',
+        ratingId: 'rt-m7-c2',
+        decidedAt: '2026-04-19T09:30:00Z',
+        contest: {
+          type: 'GOL',
+          description: 'Segundo gol do mandante saiu após falta clara no nosso zagueiro aos 38 do 2º tempo.',
+          suggestion: 'Anular o gol e revisar para placar final 1 x 2.'
+        }
+      }
     }
   },
 ];
