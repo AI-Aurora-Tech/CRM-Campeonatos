@@ -339,6 +339,18 @@ Aparece quando `IN_REVIEW` **ou** quando `AWAITING_VALIDATION + 48h expirado`:
 
 > Cada cartão exibe foto, clube, posição, valor do critério e um rodapé com contexto adicional (ex: gols sofridos × jogos × clean sheets para a Luva de Ouro).
 
+**Detalhe interativo do prêmio**
+
+Clicar em qualquer card abre um modal com:
+
+- **Disputa do prêmio**: top 8 candidatos ordenados pela métrica do prêmio (com posição, foto, clube, posição em campo e valor)
+- **Detalhes do líder** (varia por prêmio):
+  - 🥇 Chuteira de Ouro → tabela com partidas em que o artilheiro fez gol (data, adversário, casa/fora, placar, gols na partida)
+  - 🥈 Chuteira de Prata → partidas em que o garçom deu assistência
+  - 🧤 Luva de Ouro → histórico do goleiro com badge "Clean Sheet" + minicards `clean sheets`, `minutos sem sofrer` (≈ CS × 90′) e `gols sofridos`
+  - ⭐ Craque do Campeonato → partidas em que foi MVP, com gols marcados na partida
+  - 🛡️ Fair Play → cartões do defensor por partida (amarelos/vermelhos discriminados)
+
 **Narrativa IA (Gemini)**
 
 Botão "Gerar Análise" produz um parágrafo em português descrevendo os destaques da competição com tom profissional, baseado nos dados reais.

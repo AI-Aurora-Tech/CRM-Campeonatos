@@ -1238,7 +1238,7 @@ function AdvancedAnalyticsView({
       </div>
 
       {activeTab === 'awards' ? (
-        <AwardsView players={players} clubs={clubs} matches={matches} />
+        <AwardsView players={players} clubs={clubs} matches={matches} matchEvents={matchEvents} />
       ) : (
         <>
           <GeminiDataAnalyst standings={standings} fairPlayData={fairPlayData} />
@@ -2472,19 +2472,24 @@ const isPlayerEligible = (player: Player, rules: Championship['rules']): { eligi
 // Posições consideradas "defesa" para o Prêmio Fair Play
 const DEFENSE_POSITIONS = ['ZAG', 'LD', 'LE', 'LAT', 'DEF'];
 
-function AwardsView({ players, clubs, matches }: { players: Player[], clubs: Club[], matches: Match[] }) {
-  // 1. Chuteira de Ouro — Artilheiro
-  const topScorer = [...players]
+type AwardKey = 'GOLDEN_BOOT' | 'SILVER_BOOT' | 'GOLDEN_GLOVE' | 'STAR' | 'FAIR_PLAY';
+
+function AwardsView({ players, clubs, matches, matchEvents }: { players: Player[], clubs: Club[], matches: Match[], matchEvents: MatchEvent[] }) {
+  const [activeAward, setActiveAward] = useState<AwardKey | null>(null);
+
+  // 1. Chuteira de Ouro — Artilharia (ranking completo)
+  const scorerRanking = [...players]
     .filter(p => (p.stats?.goals || 0) > 0)
-    .sort((a, b) => (b.stats?.goals || 0) - (a.stats?.goals || 0))[0];
+    .sort((a, b) => (b.stats?.goals || 0) - (a.stats?.goals || 0));
+  const topScorer = scorerRanking[0];
 
-  // 2. Chuteira de Prata — Mais assistências
-  const topAssister = [...players]
+  // 2. Chuteira de Prata — Assistências (ranking completo)
+  const assisterRanking = [...players]
     .filter(p => (p.stats?.assists || 0) > 0)
-    .sort((a, b) => (b.stats?.assists || 0) - (a.stats?.assists || 0))[0];
+    .sort((a, b) => (b.stats?.assists || 0) - (a.stats?.assists || 0));
+  const topAssister = assisterRanking[0];
 
-  // 3. Luva de Ouro — Goleiro com menor média de gols sofridos (proporcional aos
-  //    jogos disputados pela equipe). Empate vai pra quem tem mais clean sheets.
+  // 3. Luva de Ouro — gols sofridos / jogos disputados (proporcional)
   const goalkeepers = players.filter(p => p.position === 'GOL');
   const goalkeeperStats = goalkeepers.map(gk => {
     const clubMatches = matches.filter(m =>
@@ -2501,13 +2506,13 @@ function AwardsView({ players, clubs, matches }: { players: Player[], clubs: Clu
     }).length;
     const played = clubMatches.length;
     const ratio = played > 0 ? goalsAgainst / played : Infinity;
-    return { gk, ratio, played, goalsAgainst, cleanSheets };
+    return { gk, ratio, played, goalsAgainst, cleanSheets, clubMatches };
   })
   .filter(s => s.played > 0)
   .sort((a, b) => a.ratio !== b.ratio ? a.ratio - b.ratio : b.cleanSheets - a.cleanSheets);
   const bestGK = goalkeeperStats[0];
 
-  // 4. Craque do Campeonato — mais MVPs (gols como critério de desempate)
+  // 4. Craque do Campeonato — mais MVPs (gols como desempate)
   const craqueRanking = [...players]
     .filter(p => (p.stats?.mvpCount || 0) > 0 || (p.stats?.goals || 0) > 0)
     .sort((a, b) => {
@@ -2517,9 +2522,7 @@ function AwardsView({ players, clubs, matches }: { players: Player[], clubs: Clu
     });
   const craque = craqueRanking[0];
 
-  // 5. Prêmio Fair Play — só zagueiros e laterais (jogadores de defesa)
-  //    Ranking pelo menor índice de indisciplina (amarelo=1, vermelho=3),
-  //    com mais jogos como critério de desempate.
+  // 5. Prêmio Fair Play — defensores com menor índice disciplinar
   const fairPlayRanking = players
     .filter(p => DEFENSE_POSITIONS.includes(p.position) && (p.stats?.matches || 0) > 0)
     .map(p => ({
@@ -2531,8 +2534,9 @@ function AwardsView({ players, clubs, matches }: { players: Player[], clubs: Clu
   const fairPlayDefender = fairPlayRanking[0];
 
   const AwardCard = ({
-    title, icon, accent, player, subtitle, value, footnote
+    award, title, icon, accent, player, subtitle, value, footnote
   }: {
+    award: AwardKey;
     title: string;
     icon: React.ReactNode;
     accent: string;
@@ -2541,7 +2545,12 @@ function AwardsView({ players, clubs, matches }: { players: Player[], clubs: Clu
     value: string;
     footnote?: string;
   }) => (
-    <div className="card-utility p-6 bg-white overflow-hidden relative group">
+    <button
+      type="button"
+      disabled={!player}
+      onClick={() => setActiveAward(award)}
+      className="card-utility p-6 bg-white overflow-hidden relative group text-left disabled:cursor-not-allowed disabled:opacity-60 enabled:hover:border-accent/40 enabled:hover:-translate-y-0.5 transition-all"
+    >
       <div className={`absolute top-0 right-0 w-32 h-32 ${accent} rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl opacity-30 group-hover:opacity-60 transition-all duration-700`} />
       <div className="flex items-start gap-4 z-10 relative">
         <div className={`p-3 ${accent} rounded-2xl`}>{icon}</div>
@@ -2566,14 +2575,15 @@ function AwardsView({ players, clubs, matches }: { players: Player[], clubs: Clu
                 <span className="text-[10px] font-black text-text-muted uppercase tracking-wider">{subtitle}</span>
                 <span className="text-lg font-black text-primary tabular-nums">{value}</span>
               </div>
-              {footnote && (
-                <p className="mt-2 text-[10px] font-medium text-text-muted">{footnote}</p>
-              )}
+              {footnote && <p className="mt-2 text-[10px] font-medium text-text-muted">{footnote}</p>}
+              <p className="mt-3 text-[10px] font-black text-accent uppercase tracking-widest flex items-center gap-1">
+                Ver ranking & detalhes <ChevronRight size={12} />
+              </p>
             </>
           )}
         </div>
       </div>
-    </div>
+    </button>
   );
 
   return (
@@ -2590,6 +2600,7 @@ function AwardsView({ players, clubs, matches }: { players: Player[], clubs: Clu
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
         <AwardCard
+          award="GOLDEN_BOOT"
           title="Chuteira de Ouro"
           icon={<Trophy size={20} className="text-amber-600" />}
           accent="bg-amber-100 text-amber-700"
@@ -2599,6 +2610,7 @@ function AwardsView({ players, clubs, matches }: { players: Player[], clubs: Clu
           footnote="Artilheiro do campeonato"
         />
         <AwardCard
+          award="SILVER_BOOT"
           title="Chuteira de Prata"
           icon={<Award size={20} className="text-neutral-500" />}
           accent="bg-neutral-200 text-neutral-700"
@@ -2608,6 +2620,7 @@ function AwardsView({ players, clubs, matches }: { players: Player[], clubs: Clu
           footnote="Maior garçom do campeonato"
         />
         <AwardCard
+          award="GOLDEN_GLOVE"
           title="Luva de Ouro"
           icon={<Shield size={20} className="text-blue-600" />}
           accent="bg-blue-100 text-blue-700"
@@ -2617,6 +2630,7 @@ function AwardsView({ players, clubs, matches }: { players: Player[], clubs: Clu
           footnote={bestGK ? `${bestGK.goalsAgainst} sofridos em ${bestGK.played} jogos · ${bestGK.cleanSheets} clean sheet(s)` : undefined}
         />
         <AwardCard
+          award="STAR"
           title="Craque do Campeonato"
           icon={<Star size={20} className="text-accent" fill="currentColor" />}
           accent="bg-accent/10 text-accent"
@@ -2626,6 +2640,7 @@ function AwardsView({ players, clubs, matches }: { players: Player[], clubs: Clu
           footnote={craque ? `${craque.stats?.goals ?? 0} gol(s) na temporada` : undefined}
         />
         <AwardCard
+          award="FAIR_PLAY"
           title="Prêmio Fair Play"
           icon={<Heart size={20} className="text-green-600" />}
           accent="bg-green-100 text-green-700"
@@ -2635,6 +2650,359 @@ function AwardsView({ players, clubs, matches }: { players: Player[], clubs: Clu
           footnote={fairPlayDefender ? `${fairPlayDefender.player.stats?.yellowCards ?? 0} amarelo(s) · ${fairPlayDefender.player.stats?.redCards ?? 0} vermelho(s) em ${fairPlayDefender.matches} jogo(s)` : 'Restrito a zagueiros e laterais'}
         />
       </div>
+
+      {activeAward && (
+        <AwardDetailModal
+          award={activeAward}
+          onClose={() => setActiveAward(null)}
+          clubs={clubs}
+          matches={matches}
+          matchEvents={matchEvents}
+          scorerRanking={scorerRanking}
+          assisterRanking={assisterRanking}
+          goalkeeperStats={goalkeeperStats}
+          craqueRanking={craqueRanking}
+          fairPlayRanking={fairPlayRanking}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Modal de detalhes do prêmio ────────────────────────────────────────────
+type GKStats = { gk: Player; ratio: number; played: number; goalsAgainst: number; cleanSheets: number; clubMatches: Match[] };
+type FairPlayEntry = { player: Player; discipline: number; matches: number };
+
+const AWARD_META: Record<AwardKey, { title: string; metricLabel: string; color: string }> = {
+  GOLDEN_BOOT:  { title: 'Chuteira de Ouro',       metricLabel: 'Gols',                color: 'text-amber-600' },
+  SILVER_BOOT:  { title: 'Chuteira de Prata',      metricLabel: 'Assistências',        color: 'text-neutral-600' },
+  GOLDEN_GLOVE: { title: 'Luva de Ouro',           metricLabel: 'Gols sofridos / jogo', color: 'text-blue-600' },
+  STAR:         { title: 'Craque do Campeonato',   metricLabel: 'MVPs',                color: 'text-accent' },
+  FAIR_PLAY:    { title: 'Prêmio Fair Play',       metricLabel: 'Pts disciplinar',     color: 'text-green-600' },
+};
+
+function AwardDetailModal({
+  award, onClose, clubs, matches, matchEvents,
+  scorerRanking, assisterRanking, goalkeeperStats, craqueRanking, fairPlayRanking,
+}: {
+  award: AwardKey;
+  onClose: () => void;
+  clubs: Club[];
+  matches: Match[];
+  matchEvents: MatchEvent[];
+  scorerRanking: Player[];
+  assisterRanking: Player[];
+  goalkeeperStats: GKStats[];
+  craqueRanking: Player[];
+  fairPlayRanking: FairPlayEntry[];
+}) {
+  const meta = AWARD_META[award];
+
+  // Constrói a lista de candidatos (top 8) com player + valor da métrica
+  const ranking: { player: Player; value: string; extra?: string }[] = (() => {
+    if (award === 'GOLDEN_BOOT')
+      return scorerRanking.slice(0, 8).map(p => ({ player: p, value: `${p.stats?.goals ?? 0}` }));
+    if (award === 'SILVER_BOOT')
+      return assisterRanking.slice(0, 8).map(p => ({ player: p, value: `${p.stats?.assists ?? 0}` }));
+    if (award === 'GOLDEN_GLOVE')
+      return goalkeeperStats.slice(0, 8).map(s => ({
+        player: s.gk,
+        value: s.ratio.toFixed(2),
+        extra: `${s.cleanSheets} CS · ${s.goalsAgainst} GS / ${s.played}j`,
+      }));
+    if (award === 'STAR')
+      return craqueRanking.slice(0, 8).map(p => ({
+        player: p,
+        value: `${p.stats?.mvpCount ?? 0}`,
+        extra: `${p.stats?.goals ?? 0} gol(s)`,
+      }));
+    return fairPlayRanking.slice(0, 8).map(e => ({
+      player: e.player,
+      value: e.discipline.toString(),
+      extra: `${e.matches} jogo(s)`,
+    }));
+  })();
+
+  const leader = ranking[0]?.player;
+
+  return (
+    <div className="fixed inset-0 bg-primary/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden border border-surface-border flex flex-col"
+      >
+        <div className="p-6 border-b border-surface-border bg-neutral-50 flex items-center justify-between shrink-0">
+          <div>
+            <h3 className={`font-black uppercase text-sm tracking-tight ${meta.color}`}>{meta.title}</h3>
+            {leader && (
+              <p className="text-[11px] text-text-muted font-bold mt-0.5">
+                Líder: <b className="text-primary">{leader.name}</b> · {clubs.find(c => c.id === leader.clubId)?.shortName}
+              </p>
+            )}
+          </div>
+          <button onClick={onClose} className="text-text-muted hover:text-red-500"><X size={20} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Ranking */}
+          <section>
+            <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-text-muted mb-3">
+              Disputa do prêmio (top {ranking.length})
+            </h4>
+            {ranking.length === 0 ? (
+              <p className="text-[12px] text-text-muted italic">Nenhum candidato com dados ainda.</p>
+            ) : (
+              <div className="divide-y divide-dotted divide-surface-border border border-surface-border rounded-2xl overflow-hidden">
+                {ranking.map((row, idx) => {
+                  const club = clubs.find(c => c.id === row.player.clubId);
+                  return (
+                    <div key={row.player.id} className={`flex items-center gap-4 px-4 py-3 ${idx === 0 ? 'bg-amber-50/40' : 'bg-white'}`}>
+                      <span className={`text-[13px] font-black w-6 text-center ${idx === 0 ? meta.color : 'text-text-muted'}`}>{idx + 1}º</span>
+                      <img src={row.player.photoUrl} className="w-9 h-9 rounded-lg object-cover border border-surface-border" alt="" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-bold text-primary truncate">{row.player.name}</p>
+                        <p className="text-[10px] text-text-muted font-medium truncate">
+                          {club?.shortName ?? '—'} · {row.player.position}
+                          {row.extra && <> · {row.extra}</>}
+                        </p>
+                      </div>
+                      <span className={`text-[15px] font-black tabular-nums ${idx === 0 ? meta.color : 'text-primary'}`}>{row.value}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <p className="mt-2 text-[10px] text-text-muted italic">Métrica: {meta.metricLabel}</p>
+          </section>
+
+          {/* Detalhes do líder */}
+          {leader && (
+            <section>
+              <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-text-muted mb-3">
+                {award === 'GOLDEN_BOOT' && 'Partidas em que o artilheiro fez gol'}
+                {award === 'SILVER_BOOT' && 'Partidas em que o garçom deu assistência'}
+                {award === 'GOLDEN_GLOVE' && 'Histórico do goleiro (clean sheets em destaque)'}
+                {award === 'STAR' && 'Partidas em que foi eleito MVP'}
+                {award === 'FAIR_PLAY' && 'Cartões do líder por partida'}
+              </h4>
+              <LeaderBreakdown
+                award={award}
+                leader={leader}
+                gkStats={award === 'GOLDEN_GLOVE' ? goalkeeperStats[0] : undefined}
+                clubs={clubs}
+                matches={matches}
+                matchEvents={matchEvents}
+              />
+            </section>
+          )}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function LeaderBreakdown({
+  award, leader, gkStats, clubs, matches, matchEvents,
+}: {
+  award: AwardKey;
+  leader: Player;
+  gkStats?: GKStats;
+  clubs: Club[];
+  matches: Match[];
+  matchEvents: MatchEvent[];
+}) {
+  const opponentOf = (m: Match) => {
+    const isHome = m.homeTeamId === leader.clubId;
+    return clubs.find(c => c.id === (isHome ? m.awayTeamId : m.homeTeamId));
+  };
+  const sideLabel = (m: Match) => m.homeTeamId === leader.clubId ? 'Casa' : 'Fora';
+  const matchById = (id: string) => matches.find(m => m.id === id);
+
+  // ── Chuteira de Ouro ── partidas com gols do líder ───────────────────────
+  if (award === 'GOLDEN_BOOT') {
+    const goalsByMatch = new Map<string, number>();
+    matchEvents.filter(e => e.playerId === leader.id && e.type === 'GOAL').forEach(e => {
+      goalsByMatch.set(e.matchId, (goalsByMatch.get(e.matchId) ?? 0) + 1);
+    });
+    if (goalsByMatch.size === 0) {
+      return <EmptyBreakdown text={`Os ${leader.stats?.goals ?? 0} gol(s) do artilheiro ainda não estão detalhados em eventos de súmula.`} />;
+    }
+    const rows = Array.from(goalsByMatch.entries())
+      .map(([id, count]) => ({ match: matchById(id), count }))
+      .filter(r => !!r.match)
+      .sort((a, b) => (b.match!.date).localeCompare(a.match!.date));
+    return (
+      <BreakdownTable
+        head={['Data', 'Adversário', 'Local', 'Placar', 'Gols']}
+        rows={rows.map(r => [
+          r.match!.date,
+          opponentOf(r.match!)?.shortName ?? '—',
+          sideLabel(r.match!),
+          `${r.match!.score?.home ?? 0} - ${r.match!.score?.away ?? 0}`,
+          <span key="g" className="text-amber-600 font-black">{r.count}</span>,
+        ])}
+      />
+    );
+  }
+
+  // ── Chuteira de Prata ── partidas com assistências do líder ──────────────
+  if (award === 'SILVER_BOOT') {
+    const assistsByMatch = new Map<string, number>();
+    matchEvents.filter(e => e.playerId === leader.id && e.type === 'ASSIST').forEach(e => {
+      assistsByMatch.set(e.matchId, (assistsByMatch.get(e.matchId) ?? 0) + 1);
+    });
+    if (assistsByMatch.size === 0) {
+      return <EmptyBreakdown text={`As ${leader.stats?.assists ?? 0} assistência(s) ainda não estão detalhadas em eventos de súmula.`} />;
+    }
+    const rows = Array.from(assistsByMatch.entries())
+      .map(([id, count]) => ({ match: matchById(id), count }))
+      .filter(r => !!r.match)
+      .sort((a, b) => (b.match!.date).localeCompare(a.match!.date));
+    return (
+      <BreakdownTable
+        head={['Data', 'Adversário', 'Local', 'Placar', 'Assistências']}
+        rows={rows.map(r => [
+          r.match!.date,
+          opponentOf(r.match!)?.shortName ?? '—',
+          sideLabel(r.match!),
+          `${r.match!.score?.home ?? 0} - ${r.match!.score?.away ?? 0}`,
+          <span key="a" className="text-neutral-700 font-black">{r.count}</span>,
+        ])}
+      />
+    );
+  }
+
+  // ── Luva de Ouro ── histórico do goleiro com clean sheets ────────────────
+  if (award === 'GOLDEN_GLOVE' && gkStats) {
+    const cleanMinutes = gkStats.cleanSheets * 90; // aproximação
+    const sorted = [...gkStats.clubMatches].sort((a, b) => b.date.localeCompare(a.date));
+    return (
+      <>
+        <div className="grid grid-cols-3 gap-3 mb-3">
+          <MiniStat label="Clean sheets" value={gkStats.cleanSheets.toString()} accent="text-blue-600" />
+          <MiniStat label="Minutos s/ sofrer" value={`${cleanMinutes}'`} accent="text-blue-600" />
+          <MiniStat label="Gols sofridos" value={gkStats.goalsAgainst.toString()} accent="text-text-muted" />
+        </div>
+        <BreakdownTable
+          head={['Data', 'Adversário', 'Local', 'Placar', 'Gols sofridos']}
+          rows={sorted.map(m => {
+            const isHome = m.homeTeamId === leader.clubId;
+            const ga = isHome ? (m.score?.away ?? 0) : (m.score?.home ?? 0);
+            const gf = isHome ? (m.score?.home ?? 0) : (m.score?.away ?? 0);
+            const isClean = ga === 0;
+            return [
+              m.date,
+              opponentOf(m)?.shortName ?? '—',
+              isHome ? 'Casa' : 'Fora',
+              `${gf} - ${ga}`,
+              isClean
+                ? <span key="cs" className="text-[9px] font-black px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 uppercase">Clean Sheet</span>
+                : <span key="ga" className="text-red-600 font-black">{ga}</span>,
+            ];
+          })}
+        />
+      </>
+    );
+  }
+
+  // ── Craque do Campeonato ── partidas em que foi MVP ──────────────────────
+  if (award === 'STAR') {
+    const mvpMatches = matches.filter(m => m.mvpPlayerId === leader.id).sort((a, b) => b.date.localeCompare(a.date));
+    if (mvpMatches.length === 0) {
+      return <EmptyBreakdown text={`Os ${leader.stats?.mvpCount ?? 0} MVP(s) ainda não têm referência direta nas partidas registradas.`} />;
+    }
+    return (
+      <BreakdownTable
+        head={['Data', 'Adversário', 'Local', 'Placar', 'Marcador']}
+        rows={mvpMatches.map(m => {
+          const goalsThis = matchEvents.filter(e => e.matchId === m.id && e.playerId === leader.id && e.type === 'GOAL').length;
+          return [
+            m.date,
+            opponentOf(m)?.shortName ?? '—',
+            sideLabel(m),
+            `${m.score?.home ?? 0} - ${m.score?.away ?? 0}`,
+            goalsThis > 0
+              ? <span key="g" className="text-accent font-black">{goalsThis} gol(s)</span>
+              : <span key="g" className="text-text-muted">—</span>,
+          ];
+        })}
+      />
+    );
+  }
+
+  // ── Fair Play ── cartões do defensor por partida ────────────────────────
+  if (award === 'FAIR_PLAY') {
+    const cardEvents = matchEvents.filter(e => e.playerId === leader.id && (e.type === 'YELLOW_CARD' || e.type === 'RED_CARD'));
+    if (cardEvents.length === 0) {
+      return (
+        <EmptyBreakdown text={`Líder em fair play sem cartões registrados em eventos de súmula. Stats agregadas: ${leader.stats?.yellowCards ?? 0} amarelo(s) · ${leader.stats?.redCards ?? 0} vermelho(s) em ${leader.stats?.matches ?? 0} jogo(s).`} />
+      );
+    }
+    const byMatch = new Map<string, { y: number; r: number }>();
+    cardEvents.forEach(e => {
+      const v = byMatch.get(e.matchId) ?? { y: 0, r: 0 };
+      if (e.type === 'YELLOW_CARD') v.y++; else v.r++;
+      byMatch.set(e.matchId, v);
+    });
+    const rows = Array.from(byMatch.entries())
+      .map(([id, c]) => ({ match: matchById(id), c }))
+      .filter(r => !!r.match)
+      .sort((a, b) => (b.match!.date).localeCompare(a.match!.date));
+    return (
+      <BreakdownTable
+        head={['Data', 'Adversário', 'Local', 'Placar', 'Cartões']}
+        rows={rows.map(r => [
+          r.match!.date,
+          opponentOf(r.match!)?.shortName ?? '—',
+          sideLabel(r.match!),
+          `${r.match!.score?.home ?? 0} - ${r.match!.score?.away ?? 0}`,
+          <span key="c" className="font-black">
+            {r.c.y > 0 && <span className="text-amber-600 mr-2">{r.c.y}A</span>}
+            {r.c.r > 0 && <span className="text-red-600">{r.c.r}V</span>}
+          </span>,
+        ])}
+      />
+    );
+  }
+
+  return null;
+}
+
+function BreakdownTable({ head, rows }: { head: string[]; rows: React.ReactNode[][] }) {
+  return (
+    <div className="border border-surface-border rounded-2xl overflow-hidden">
+      <table className="w-full text-[12px]">
+        <thead className="bg-neutral-50 text-[10px] uppercase font-black text-text-muted tracking-widest">
+          <tr>
+            {head.map(h => <th key={h} className="px-3 py-2 text-left">{h}</th>)}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-dotted divide-surface-border">
+          {rows.map((row, i) => (
+            <tr key={i} className="hover:bg-neutral-50/50">
+              {row.map((cell, j) => <td key={j} className="px-3 py-2 font-medium">{cell}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function MiniStat({ label, value, accent }: { label: string; value: string; accent: string }) {
+  return (
+    <div className="bg-neutral-50 rounded-xl p-3 text-center border border-surface-border/60">
+      <p className={`text-xl font-black ${accent} leading-none`}>{value}</p>
+      <p className="text-[9px] font-black uppercase tracking-widest text-text-muted mt-1">{label}</p>
+    </div>
+  );
+}
+
+function EmptyBreakdown({ text }: { text: string }) {
+  return (
+    <div className="border-2 border-dashed border-surface-border rounded-2xl p-6 text-center text-[12px] text-text-muted italic">
+      {text}
     </div>
   );
 }
