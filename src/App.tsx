@@ -4283,7 +4283,19 @@ function App() {
   const [selectedClubId, setSelectedClubId] = useState<string | null>(null);
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onResize = () => {
+      if (window.innerWidth >= 1024) setIsSidebarOpen(true);
+      else setIsSidebarOpen(false);
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   // Calculate Standings (Mock Implementation)
   const standings = useMemo(() => {
@@ -4353,6 +4365,13 @@ function App() {
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
 
+  const navigateTo = (view: View) => {
+    setCurrentView(view);
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+      setIsSidebarOpen(false);
+    }
+  };
+
   const handleSaveLineup = (matchId: string, lineups: Match['lineups']) => {
     setMatches(prev => prev.map(m => m.id === matchId ? { ...m, lineups } : m));
     setCurrentView('matches');
@@ -4407,7 +4426,21 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-50 flex overflow-hidden">
+    <div className="min-h-screen bg-neutral-50 flex overflow-hidden relative">
+      {/* Mobile backdrop */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div
+            key="sidebar-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsSidebarOpen(false)}
+            className="lg:hidden fixed inset-0 bg-black/50 z-40"
+          />
+        )}
+      </AnimatePresence>
+
       {/* Sidebar */}
       <AnimatePresence mode="wait">
         {isSidebarOpen && (
@@ -4415,7 +4448,7 @@ function App() {
             initial={{ x: -250 }}
             animate={{ x: 0 }}
             exit={{ x: -250 }}
-            className="w-[220px] bg-primary text-white flex flex-col z-50 absolute lg:relative h-full shadow-lg"
+            className="w-[220px] bg-primary text-white flex flex-col z-50 fixed lg:relative top-0 left-0 h-screen lg:h-auto shadow-lg"
           >
             <div className="p-6 flex items-center gap-3">
               <div className="w-6 h-6 bg-accent rounded-full shadow-lg shadow-accent/20" />
@@ -4425,23 +4458,23 @@ function App() {
               </div>
             </div>
 
-            <nav className="flex-1 px-4 py-8 space-y-1">
-              <NavBtn active={currentView === 'dashboard'} icon={<LayoutDashboard size={18} />} label="Painel Geral" onClick={() => setCurrentView('dashboard')} />
-              <NavBtn active={currentView === 'championships'} icon={<Trophy size={18} />} label="Campeonatos" onClick={() => setCurrentView('championships')} />
-              <NavBtn active={currentView === 'clubs'} icon={<ShieldAlert size={18} />} label="Clubes & Atletas" onClick={() => setCurrentView('clubs')} />
-              <NavBtn active={currentView === 'players'} icon={<Users size={18} />} label="Atletas" onClick={() => setCurrentView('players')} />
-              <NavBtn active={currentView === 'referees'} icon={<Users size={18} />} label="Árbitros" onClick={() => setCurrentView('referees')} />
-              <NavBtn active={currentView === 'matches'} icon={<Calendar size={18} />} label="Súmulas Digitais" onClick={() => setCurrentView('matches')} />
-              <NavBtn active={currentView === 'venues'} icon={<MapPin size={18} />} label="Campos & Sedes" onClick={() => setCurrentView('venues')} />
-              <NavBtn active={currentView === 'eligibility'} icon={<Shield size={18} />} label="Documentos & Elegibilidade" onClick={() => setCurrentView('eligibility')} />
-              <NavBtn active={currentView === 'financial'} icon={<Wallet size={18} />} label="Financeiro" onClick={() => setCurrentView('financial')} />
-              <NavBtn active={currentView === 'reports'} icon={<ClipboardList size={18} />} label="Súmula pós-jogo" onClick={() => setCurrentView('reports')} />
-              <NavBtn active={currentView === 'analytics'} icon={<BarChart3 size={18} />} label="Relatórios & Analytics" onClick={() => setCurrentView('analytics')} />
-              <NavBtn active={currentView === 'automation'} icon={<Zap size={18} />} label="Automações & Alertas" onClick={() => setCurrentView('automation')} />
-              <NavBtn active={currentView === 'media'} icon={<ImageIcon size={18} />} label="Mídia & Galeria" onClick={() => setCurrentView('media')} />
-              
+            <nav className="flex-1 px-4 py-8 space-y-1 overflow-y-auto">
+              <NavBtn active={currentView === 'dashboard'} icon={<LayoutDashboard size={18} />} label="Painel Geral" onClick={() => navigateTo('dashboard')} />
+              <NavBtn active={currentView === 'championships'} icon={<Trophy size={18} />} label="Campeonatos" onClick={() => navigateTo('championships')} />
+              <NavBtn active={currentView === 'clubs'} icon={<ShieldAlert size={18} />} label="Clubes & Atletas" onClick={() => navigateTo('clubs')} />
+              <NavBtn active={currentView === 'players'} icon={<Users size={18} />} label="Atletas" onClick={() => navigateTo('players')} />
+              <NavBtn active={currentView === 'referees'} icon={<Users size={18} />} label="Árbitros" onClick={() => navigateTo('referees')} />
+              <NavBtn active={currentView === 'matches'} icon={<Calendar size={18} />} label="Súmulas Digitais" onClick={() => navigateTo('matches')} />
+              <NavBtn active={currentView === 'venues'} icon={<MapPin size={18} />} label="Campos & Sedes" onClick={() => navigateTo('venues')} />
+              <NavBtn active={currentView === 'eligibility'} icon={<Shield size={18} />} label="Documentos & Elegibilidade" onClick={() => navigateTo('eligibility')} />
+              <NavBtn active={currentView === 'financial'} icon={<Wallet size={18} />} label="Financeiro" onClick={() => navigateTo('financial')} />
+              <NavBtn active={currentView === 'reports'} icon={<ClipboardList size={18} />} label="Súmula pós-jogo" onClick={() => navigateTo('reports')} />
+              <NavBtn active={currentView === 'analytics'} icon={<BarChart3 size={18} />} label="Relatórios & Analytics" onClick={() => navigateTo('analytics')} />
+              <NavBtn active={currentView === 'automation'} icon={<Zap size={18} />} label="Automações & Alertas" onClick={() => navigateTo('automation')} />
+              <NavBtn active={currentView === 'media'} icon={<ImageIcon size={18} />} label="Mídia & Galeria" onClick={() => navigateTo('media')} />
+
               <div className="pt-4 mt-4 border-t border-white/10">
-                <NavBtn active={currentView === 'public-portal'} icon={<ExternalLink size={18} />} label="Portal Público" onClick={() => setCurrentView('public-portal')} />
+                <NavBtn active={currentView === 'public-portal'} icon={<ExternalLink size={18} />} label="Portal Público" onClick={() => navigateTo('public-portal')} />
               </div>
             </nav>
 
