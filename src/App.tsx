@@ -9,6 +9,7 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { 
   Trophy, 
@@ -2725,11 +2726,15 @@ function AwardDetailModal({
 
   const leader = ranking[0]?.player;
 
-  return (
-    <div className="fixed inset-0 bg-primary/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+  return createPortal(
+    <div
+      className="fixed inset-0 bg-primary/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+      onClick={onClose}
+    >
       <motion.div
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
+        onClick={e => e.stopPropagation()}
         className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden border border-surface-border flex flex-col"
       >
         <div className="p-6 border-b border-surface-border bg-neutral-50 flex items-center justify-between shrink-0">
@@ -2798,7 +2803,8 @@ function AwardDetailModal({
           )}
         </div>
       </motion.div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
