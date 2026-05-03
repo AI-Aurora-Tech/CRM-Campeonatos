@@ -89,7 +89,7 @@ import { Match, Championship, Standing, MatchEvent, Club, Player, Referee, Refer
 import { MOCK_CHAMPIONSHIP, MOCK_CLUBS, MOCK_PLAYERS, MOCK_MATCHES, MOCK_VENUES, MOCK_REFEREES, MOCK_RATINGS } from './mockData';
 
 // Types for navigation
-type View = 'dashboard' | 'championships' | 'clubs' | 'players' | 'matches' | 'reports' | 'financial' | 'club-detail' | 'referees' | 'lineup' | 'player-detail' | 'automation' | 'public-portal' | 'media' | 'analytics' | 'venues' | 'eligibility' | 'validation';
+type View = 'dashboard' | 'championships' | 'clubs' | 'players' | 'matches' | 'reports' | 'financial' | 'club-detail' | 'referees' | 'lineup' | 'player-detail' | 'public-portal' | 'media' | 'analytics' | 'venues' | 'eligibility' | 'validation';
 
 // Sub-components for better organization
 function ClubsView({ clubs, setClubs, players, onSelectClub, defaultPresidentId }: { clubs: Club[], setClubs: React.Dispatch<React.SetStateAction<Club[]>>, players: Player[], onSelectClub: (id: string) => void, defaultPresidentId: string }) {
@@ -3083,228 +3083,6 @@ function PublicPortalView({ clubs, matches, players, standings, championship }: 
   );
 }
 
-function AutomationView({ clubs, matches, players, notifications, setNotifications, supabase, useRemote, organizationId }: { clubs: Club[], matches: Match[], players: Player[], notifications: Notification[], setNotifications: React.Dispatch<React.SetStateAction<Notification[]>>, supabase: SupabaseClient | null, useRemote: boolean, organizationId: string }) {
-  const [isScanning, setIsScanning] = useState(false);
-
-  const scanForNotifications = () => {
-    setIsScanning(true);
-    setTimeout(() => {
-      const newNotifications: Notification[] = [];
-      const now = new Date();
-      const tomorrow = new Date(now);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const in7Days = new Date(now);
-      in7Days.setDate(in7Days.getDate() + 7);
-
-      // 1. Matches Tomorrow & Missing Lineup
-      matches.forEach(m => {
-        const matchDate = new Date(m.date);
-        const homeClub = clubs.find(c => c.id === m.homeTeamId);
-        const awayClub = clubs.find(c => c.id === m.awayTeamId);
-
-        if (matchDate.toDateString() === tomorrow.toDateString()) {
-          if (homeClub?.email) {
-            newNotifications.push({
-              id: `notif-${Date.now()}-h1`,
-              type: 'MATCH_TOMORROW',
-              clubId: homeClub.id,
-              recipientEmail: homeClub.email,
-              channel: 'email',
-              status: 'QUEUED',
-              subject: 'Convite de Jogo: Você tem partida amanhã!',
-              content: `Olá ${homeClub.name}, lembre-se que amanhã você enfrenta o ${awayClub?.name} na ${m.location} às ${m.time}.`,
-              matchId: m.id
-            });
-
-            if (!m.lineups?.home) {
-              newNotifications.push({
-                id: `notif-${Date.now()}-h2`,
-                type: 'MISSING_LINEUP',
-                clubId: homeClub.id,
-                recipientEmail: homeClub.email,
-                channel: 'email',
-                status: 'QUEUED',
-                subject: 'PENDENTE: Escalação não definida',
-                content: `Atenção! Sua escalação para o jogo de amanhã contra o ${awayClub?.name} ainda não foi enviada.`,
-                matchId: m.id
-              });
-            }
-          }
-        }
-
-        // 2. Match in 7 Days
-        if (matchDate.toDateString() === in7Days.toDateString()) {
-           if (homeClub?.email) {
-             newNotifications.push({
-               id: `notif-${Date.now()}-h7`,
-               type: 'MATCH_7_DAYS',
-               clubId: homeClub.id,
-               recipientEmail: homeClub.email,
-               channel: 'email',
-               status: 'QUEUED',
-               subject: 'Agenda Varzeana: Jogo em 7 dias',
-               content: `Preparado? Daqui a uma semana você terá um confronto importante contra o ${awayClub?.name}.`,
-               matchId: m.id
-             });
-           }
-        }
-      });
-
-      // 3. Suspended Players
-      players.filter(p => p.status === 'SUSPENDED').forEach(p => {
-        const club = clubs.find(c => c.id === p.clubId);
-        if (club?.email) {
-          newNotifications.push({
-            id: `notif-${Date.now()}-p${p.id}`,
-            type: 'PLAYER_SUSPENDED',
-            clubId: club.id,
-            recipientEmail: club.email,
-            channel: 'email',
-            status: 'QUEUED',
-            subject: 'ALERTA DE SUSPENSÃO',
-            content: `O atleta ${p.name} (Camisa ${p.shirtNumber}) atingiu o limite de cartões e está SUSPENSO para a próxima rodada.`,
-            playerId: p.id
-          });
-        }
-      });
-
-      setNotifications(prev => [...newNotifications, ...prev]);
-      setIsScanning(false);
-    }, 1500);
-  };
-
-  const sendAll = () => {
-    void (async () => {
-      if (supabase && useRemote) {
-        const pending = notifications.filter((n) => n.status === 'QUEUED');
-        for (const n of pending) {
-          const { error } = await supabase.from('notification_queue').insert({
-            organization_id: organizationId,
-            type: n.type,
-            channel: n.channel ?? 'email',
-            payload: {
-              to: n.recipientEmail,
-              subject: n.subject,
-              body: n.content,
-              matchId: n.matchId,
-              playerId: n.playerId,
-            },
-          });
-          if (!error) {
-            await supabase.functions.invoke('send-notification', {
-              body: { subject: n.subject, to: n.recipientEmail },
-            });
-          }
-        }
-      }
-      setNotifications((prev) =>
-        prev.map((n) =>
-          n.status === 'QUEUED'
-            ? { ...n, status: 'SENT' as const, sentAt: new Date().toISOString() }
-            : n
-        )
-      );
-    })();
-  };
-
-  return (
-    <div className="space-y-8 pb-12">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-black text-primary uppercase leading-none">Central de Automação</h2>
-          <p className="text-[11px] font-bold text-text-muted mt-1 uppercase tracking-widest">Motor de Notificações via Email</p>
-        </div>
-        <div className="flex gap-3">
-          <button 
-            onClick={scanForNotifications}
-            disabled={isScanning}
-            className="btn-outline flex items-center gap-2"
-          >
-            <Zap size={14} className={isScanning ? 'animate-pulse' : ''} />
-            {isScanning ? 'Sincronizando...' : 'Escanear Triggers'}
-          </button>
-          <button onClick={sendAll} className="btn-primary flex items-center gap-2">
-            <Mail size={14} /> Disparar Pendentes
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <div className="lg:col-span-1 space-y-4">
-           <div className="card-utility bg-white">
-              <h3 className="text-[10px] font-black uppercase text-text-muted mb-4 tracking-widest">Status da Fila</h3>
-              <div className="space-y-4">
-                 <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold">Aguardando Envio</span>
-                    <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full text-[10px] font-black">
-                      {notifications.filter(n => n.status === 'QUEUED').length}
-                    </span>
-                 </div>
-                 <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold">Enviados (Hoje)</span>
-                    <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full text-[10px] font-black">
-                      {notifications.filter(n => n.status === 'SENT').length}
-                    </span>
-                 </div>
-              </div>
-           </div>
-
-           <div className="card-utility bg-primary text-white border-none shadow-xl">
-              <h4 className="text-[10px] font-black text-white/40 uppercase mb-3 tracking-widest">IA Insight</h4>
-              <p className="text-[12px] font-medium leading-relaxed italic opacity-90">
-                "Detectamos que 40% das suspensões do Vila Nova ocorrem após jogos clássicos. Recomendo disparar o alerta de suspensão com 48h de antecedência."
-              </p>
-           </div>
-        </div>
-
-        <div className="lg:col-span-3 space-y-6">
-           <div className="card-utility">
-              <div className="flex items-center gap-2 mb-6">
-                 <Bell size={18} className="text-accent" />
-                 <h3 className="text-sm font-black uppercase tracking-tight">Fila de Disparo Logístico</h3>
-              </div>
-
-              <div className="space-y-3">
-                 {notifications.length === 0 ? (
-                   <div className="p-12 text-center border-2 border-dashed border-surface-border rounded-3xl">
-                      <Mail size={32} className="mx-auto text-neutral-300 mb-4 opacity-50" />
-                      <p className="text-sm font-bold text-text-muted italic">Nenhuma notificação pendente. Clique em "Escanear" para processar a agenda.</p>
-                   </div>
-                 ) : (
-                   notifications.map(n => (
-                     <div key={n.id} className="p-4 bg-neutral-50 rounded-2xl border border-surface-border/50 group hover:border-accent/40 transition-all flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                           <div className={`p-2 rounded-xl border ${
-                             n.status === 'SENT' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-amber-50 text-amber-600 border-amber-100'
-                           }`}>
-                              {n.type === 'MATCH_TOMORROW' || n.type === 'MATCH_7_DAYS' ? <Calendar size={18} /> : 
-                               n.type === 'PLAYER_SUSPENDED' ? <ShieldAlert size={18} /> : <FileText size={18} />}
-                           </div>
-                           <div className="min-w-0">
-                              <h4 className="text-[13px] font-black text-primary leading-tight flex items-center gap-2">
-                                {n.subject}
-                                {n.status === 'SENT' && <CheckCircle size={12} className="text-green-500" />}
-                              </h4>
-                              <p className="text-[11px] font-bold text-text-muted mt-0.5 truncate max-w-md">Para: {clubs.find(c => c.id === n.clubId)?.name} ({n.recipientEmail})</p>
-                           </div>
-                        </div>
-                        <div className="text-right flex flex-col items-end">
-                           <span className="text-[10px] font-black uppercase tracking-tight text-text-muted mb-1">
-                             {n.sentAt ? new Date(n.sentAt).toLocaleTimeString() : 'Aguardando'}
-                           </span>
-                           <button className="text-[10px] font-black text-accent uppercase opacity-0 group-hover:opacity-100 transition-all">Ver Conteúdo</button>
-                        </div>
-                     </div>
-                   ))
-                 )}
-              </div>
-           </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function RefereesView({ referees, setReferees, matches, ratings, clubs }: { referees: Referee[], setReferees: React.Dispatch<React.SetStateAction<Referee[]>>, matches: Match[], ratings: RefereeRating[], clubs: Club[] }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedReferee, setSelectedReferee] = useState<Referee | null>(null);
@@ -4978,7 +4756,6 @@ function App() {
     remoteLoading,
     remoteError,
     publicSlug,
-    organizationId,
     userForUi,
     loadRemote,
     signIn,
@@ -5345,7 +5122,6 @@ function App() {
               <NavBtn active={currentView === 'reports'} icon={<ClipboardList size={18} />} label="Súmula pós-jogo" onClick={() => navigateTo('reports')} />
               <NavBtn active={currentView === 'validation'} icon={<CheckCircle size={18} />} label="Validação Pós-Jogo" onClick={() => navigateTo('validation')} />
               <NavBtn active={currentView === 'analytics'} icon={<BarChart3 size={18} />} label="Relatórios & Analytics" onClick={() => navigateTo('analytics')} />
-              <NavBtn active={currentView === 'automation'} icon={<Zap size={18} />} label="Automações & Alertas" onClick={() => navigateTo('automation')} />
               <NavBtn active={currentView === 'media'} icon={<ImageIcon size={18} />} label="Mídia & Galeria" onClick={() => navigateTo('media')} />
 
               <div className="pt-4 mt-4 border-t border-white/10">
@@ -5539,18 +5315,6 @@ function App() {
                 />
               )}
               {currentView === 'referees' && <RefereesView referees={referees} setReferees={setReferees} matches={matches} ratings={ratings} clubs={clubs} />}
-              {currentView === 'automation' && (
-                <AutomationView 
-                  clubs={clubs}
-                  matches={matches}
-                  players={players}
-                  notifications={notifications}
-                  setNotifications={setNotifications}
-                  supabase={supabase}
-                  useRemote={useRemote}
-                  organizationId={organizationId}
-                />
-              )}
               {currentView === 'analytics' && (
                 <AdvancedAnalyticsView 
                   clubs={clubs}

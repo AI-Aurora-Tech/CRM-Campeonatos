@@ -21,7 +21,6 @@ Sistema completo de gestão de ligas e campeonatos de futebol amador. Cobre todo
    - [Financeiro](#financeiro)
    - [Central de Validação Pós-Jogo](#central-de-validação-pós-jogo)
    - [Relatórios & Analytics](#relatórios--analytics)
-   - [Automações & Alertas](#automações--alertas)
    - [Mídia & Galeria](#mídia--galeria)
    - [Portal Público](#portal-público)
 5. [Fluxo Completo de uma Partida](#fluxo-completo-de-uma-partida)
@@ -340,25 +339,6 @@ Aparece quando `IN_REVIEW` **ou** quando `AWAITING_VALIDATION + 48h expirado`:
 **Narrativa IA (Gemini)**
 
 Botão "Gerar Análise" produz um parágrafo em português descrevendo os destaques da competição com tom profissional, baseado nos dados reais.
-
----
-
-### Automações & Alertas
-
-Motor de notificações automáticas por e-mail/SMS/push.
-
-| Tipo | Quando dispara |
-|---|---|
-| `MATCH_TOMORROW` | Partida no dia seguinte |
-| `MATCH_7_DAYS` | Partida em 7 dias |
-| `MISSING_LINEUP` | Escalação não enviada 24h antes |
-| `PLAYER_SUSPENDED` | Atleta atingiu o limite de amarelos |
-| `NEW_ROUND` | Nova rodada gerada |
-
-**Fluxo:**
-1. **"Escanear Triggers"** → sistema detecta todas as notificações pendentes
-2. Painel exibe contadores: ENFILEIRADA / ENVIADA / FALHA
-3. **"Disparar Pendentes"** → envia via Edge Function `send-notification`
 
 ---
 
