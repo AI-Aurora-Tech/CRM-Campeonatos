@@ -4313,8 +4313,9 @@ function ValidationCenterView({
     }
   };
 
-  const clubStatusPill = (cv?: ClubValidationState) => {
+  const clubStatusPill = (cv?: ClubValidationState, expired = false) => {
     const s = cv?.status ?? 'PENDING';
+    if (s === 'PENDING' && expired) return <span className="text-[9px] font-black px-2 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 uppercase">Expirado</span>;
     if (s === 'PENDING')   return <span className="text-[9px] font-black px-2 py-0.5 rounded bg-neutral-100 text-neutral-600 border border-neutral-200 uppercase">Pendente</span>;
     if (s === 'ACCEPTED')  return <span className="text-[9px] font-black px-2 py-0.5 rounded bg-green-50 text-green-700 border border-green-200 uppercase">Aceitou</span>;
     return <span className="text-[9px] font-black px-2 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 uppercase">Contestou</span>;
@@ -4384,6 +4385,11 @@ function ValidationCenterView({
               </div>
               <div className="flex items-center gap-3">
                 {statusBadge(m.reportStatus)}
+                {dl.expired && m.reportStatus !== 'VALIDATED' && (
+                  <span className="text-[9px] font-black px-2 py-0.5 rounded border bg-red-50 text-red-700 border-red-200 uppercase tracking-tighter flex items-center gap-1">
+                    <AlertTriangle size={10} /> Expirado
+                  </span>
+                )}
                 <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest ${dl.expired ? 'text-red-600' : 'text-text-muted'}`}>
                   <Clock size={12} /> {dl.label}
                 </div>
@@ -4407,7 +4413,7 @@ function ValidationCenterView({
                       <div className="min-w-0">
                         <p className="text-[12px] font-bold truncate">{sideLabel(m, side)}</p>
                         <div className="flex items-center gap-2 mt-1">
-                          {clubStatusPill(cv)}
+                          {clubStatusPill(cv, dl.expired)}
                           {cv.contest && (
                             <span className="text-[9px] font-bold text-red-700 truncate max-w-[140px]" title={cv.contest.description}>
                               {CONTEST_TYPES.find(t => t.value === cv.contest!.type)?.label}: {cv.contest.description}
@@ -4429,11 +4435,15 @@ function ValidationCenterView({
               })}
             </div>
 
-            {m.reportStatus === 'IN_REVIEW' && (
+            {(m.reportStatus === 'IN_REVIEW' || (m.reportStatus === 'AWAITING_VALIDATION' && dl.expired)) && (
               <div className="border-t border-dashed border-surface-border pt-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div className="flex items-start gap-2 text-[11px] text-text-muted">
-                  <ShieldAlert size={14} className="text-orange-500 shrink-0 mt-0.5" />
-                  <span>Há contestação. Cabe ao organizador decidir entre validar a súmula como está ou reabrir o ciclo de validação.</span>
+                  <ShieldAlert size={14} className={`${dl.expired && m.reportStatus === 'AWAITING_VALIDATION' ? 'text-red-500' : 'text-orange-500'} shrink-0 mt-0.5`} />
+                  <span>
+                    {m.reportStatus === 'IN_REVIEW'
+                      ? 'Há contestação. Cabe ao organizador decidir entre validar a súmula como está ou reabrir o ciclo de validação.'
+                      : 'Prazo de 48h expirado sem decisão de todos os clubes. Ação manual do organizador liberada para validar a súmula ou reabrir o ciclo.'}
+                  </span>
                 </div>
                 <div className="flex gap-2">
                   <button

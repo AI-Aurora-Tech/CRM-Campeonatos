@@ -297,4 +297,23 @@ export const MOCK_MATCHES: Match[] = [
       away: { status: 'PENDING' }
     }
   },
+  {
+    id: 'm6',
+    championshipId: 'ch1',
+    homeTeamId: 'c2',
+    awayTeamId: 'c3',
+    date: '2026-04-25',
+    time: '10:00',
+    location: 'Arena da Várzea',
+    venueId: 'v2',
+    status: 'FINISHED',
+    refereeId: 'r1',
+    score: { home: 1, away: 1 },
+    reportStatus: 'AWAITING_VALIDATION',
+    reportPublishedAt: '2026-04-25T12:00:00Z',
+    validations: {
+      home: { status: 'PENDING' },
+      away: { status: 'PENDING' }
+    }
+  },
 ];
