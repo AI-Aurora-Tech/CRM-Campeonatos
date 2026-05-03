@@ -4254,6 +4254,25 @@ function ValidationCenterView({
   const queue = pendingMatches.filter(m => m.reportStatus !== 'VALIDATED');
   const recent = pendingMatches.filter(m => m.reportStatus === 'VALIDATED').slice(0, 5);
 
+  const openModal = (matchId: string, side: 'home' | 'away') => {
+    const match = matches.find(m => m.id === matchId);
+    const clubId = match ? (side === 'home' ? match.homeTeamId : match.awayTeamId) : null;
+    const existing = clubId ? ratings.find(r => r.matchId === matchId && r.clubId === clubId) : undefined;
+    setModalCtx({ matchId, side });
+    if (existing?.detail) {
+      // Anti-duplicidade: já avaliado — pula etapa 1 e reaproveita a nota
+      setDetail(existing.detail);
+      setStep(2);
+    } else {
+      setDetail({ punctuality: 0, control: 0, rules: 0, impartiality: 0, communication: 0, reportFilling: 0 });
+      setStep(1);
+    }
+    setDecision(null);
+    setContestType('GOL');
+    setContestDescription('');
+    setContestSuggestion('');
+  };
+
   const resetModal = () => {
     setModalCtx(null);
     setStep(1);
@@ -4306,6 +4325,9 @@ function ValidationCenterView({
   const currentClub = currentMatch && modalCtx
     ? clubs.find(c => c.id === (modalCtx.side === 'home' ? currentMatch.homeTeamId : currentMatch.awayTeamId))
     : null;
+  const currentExistingRating = currentMatch && currentClub
+    ? ratings.find(r => r.matchId === currentMatch.id && r.clubId === currentClub.id)
+    : undefined;
 
   return (
     <div className="space-y-6">
@@ -4396,7 +4418,7 @@ function ValidationCenterView({
                     </div>
                     {cv.status === 'PENDING' && m.reportStatus !== 'VALIDATED' && (
                       <button
-                        onClick={() => { setModalCtx({ matchId: m.id, side }); setStep(1); }}
+                        onClick={() => openModal(m.id, side)}
                         className="px-3 py-1.5 bg-accent text-white text-[10px] font-black uppercase rounded-lg hover:brightness-110 flex items-center gap-1.5 shrink-0"
                       >
                         <Star size={12} /> Avaliar e Decidir
@@ -4511,6 +4533,16 @@ function ValidationCenterView({
 
             {step === 2 && (
               <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+                {currentExistingRating && (
+                  <div className="flex items-start gap-2 text-[11px] bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-lg">
+                    <ShieldAlert size={14} className="shrink-0 mt-0.5" />
+                    <span>
+                      Você já avaliou este árbitro nesta partida (média <b>{currentExistingRating.score.toFixed(2)}</b>
+                      {currentExistingRating.detail && <> · <b>{classifyRating(currentExistingRating.score)}</b></>}).
+                      A avaliação não pode ser refeita — defina apenas a decisão abaixo.
+                    </span>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={() => setDecision('ACCEPT')}
@@ -4564,7 +4596,12 @@ function ValidationCenterView({
                 )}
 
                 <div className="flex gap-3 pt-2">
-                  <button onClick={() => setStep(1)} className="flex-1 btn-outline">Voltar</button>
+                  <button
+                    onClick={() => currentExistingRating ? resetModal() : setStep(1)}
+                    className="flex-1 btn-outline"
+                  >
+                    {currentExistingRating ? 'Cancelar' : 'Voltar'}
+                  </button>
                   <button
                     onClick={submit}
                     disabled={!decision || (decision === 'CONTEST' && (!contestDescription.trim() || !contestSuggestion.trim()))}
@@ -4902,34 +4939,44 @@ function App() {
     const match = matches.find(m => m.id === matchId);
     if (!match || !match.refereeId) return;
     const clubId = side === 'home' ? match.homeTeamId : match.awayTeamId;
-    const avg = averageRatingDetail(ratingDetail);
-    const newRating: RefereeRating = {
-      id: `rt-${matchId}-${clubId}-${Date.now()}`,
-      matchId,
-      refereeId: match.refereeId,
-      clubId,
-      score: avg,
-      detail: ratingDetail,
-      createdAt: new Date().toISOString(),
-      comment: contest?.description,
-    };
 
-    const updatedRatings = [...ratings, newRating];
-    setRatings(updatedRatings);
+    // Bloqueio anti-duplicidade: um clube só avalia o árbitro uma vez por partida.
+    // Se já houver avaliação anterior (ex: organizador reabriu), reaproveita.
+    const existing = ratings.find(r => r.matchId === matchId && r.clubId === clubId);
+    let ratingIdToUse: string;
+    if (existing) {
+      ratingIdToUse = existing.id;
+    } else {
+      const avg = averageRatingDetail(ratingDetail);
+      const newRating: RefereeRating = {
+        id: `rt-${matchId}-${clubId}-${Date.now()}`,
+        matchId,
+        refereeId: match.refereeId,
+        clubId,
+        score: avg,
+        detail: ratingDetail,
+        createdAt: new Date().toISOString(),
+        comment: contest?.description,
+      };
+      ratingIdToUse = newRating.id;
 
-    // Atualiza média do árbitro com base em todas as avaliações dele
-    const refRatings = updatedRatings.filter(r => r.refereeId === match.refereeId);
-    const refAvg = refRatings.reduce((s, r) => s + r.score, 0) / refRatings.length;
-    setReferees(prev => prev.map(r => r.id === match.refereeId
-      ? { ...r, averageRating: Number(refAvg.toFixed(2)) }
-      : r));
+      const updatedRatings = [...ratings, newRating];
+      setRatings(updatedRatings);
+
+      // Atualiza média do árbitro com base em todas as avaliações dele
+      const refRatings = updatedRatings.filter(r => r.refereeId === match.refereeId);
+      const refAvg = refRatings.reduce((s, r) => s + r.score, 0) / refRatings.length;
+      setReferees(prev => prev.map(r => r.id === match.refereeId
+        ? { ...r, averageRating: Number(refAvg.toFixed(2)) }
+        : r));
+    }
 
     setMatches(prev => prev.map(m => {
       if (m.id !== matchId) return m;
       const current = m.validations ?? { home: { status: 'PENDING' }, away: { status: 'PENDING' } };
       const updatedSide: ClubValidationState = {
         status: decision === 'ACCEPT' ? 'ACCEPTED' : 'CONTESTED',
-        ratingId: newRating.id,
+        ratingId: ratingIdToUse,
         decidedAt: new Date().toISOString(),
         contest: decision === 'CONTEST' ? contest : undefined,
       };
