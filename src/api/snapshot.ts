@@ -24,6 +24,8 @@ import type {
 export interface SnapshotInput {
   championship: Championship;
   publicSlug: string | null;
+  /** Org dona deste campeonato (isolamento por dono). Default: org demo. */
+  organizationId?: string;
   clubs: Club[];
   players: Player[];
   venues: Venue[];
@@ -75,7 +77,7 @@ export async function saveDashboardSnapshot(
   client: SupabaseClient,
   input: SnapshotInput
 ): Promise<void> {
-  const orgId = DEFAULT_ORG_ID;
+  const orgId = input.organizationId ?? DEFAULT_ORG_ID;
   const ch = input.championship;
 
   const clubRows = input.clubs.map((c) => clubToRow(c, orgId));

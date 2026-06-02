@@ -26,7 +26,26 @@ export interface Championship {
     pointsPerDraw: number;
     minAge?: number;
     maxAge?: number;
+    /** Regras de classificação personalizadas (zonas por posição na tabela). */
+    qualification?: QualificationRules;
   };
+}
+
+/** Tipo de cada faixa de classificação por posição final na tabela. */
+export type QualificationZoneType = 'QUALIFIED' | 'PLAYOFF' | 'ELIMINATED';
+
+export interface QualificationZone {
+  id: string;
+  label: string;       // ex.: "Classificação direta"
+  from: number;        // posição inicial (1-based, inclusiva)
+  to: number;          // posição final (inclusiva)
+  type: QualificationZoneType;
+  color: string;       // cor hex para destacar na tabela
+}
+
+export interface QualificationRules {
+  enabled: boolean;
+  zones: QualificationZone[];
 }
 
 export interface Club {

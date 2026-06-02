@@ -85,8 +85,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 import { useAppData } from './hooks/useAppData';
 import { AuthPanel } from './components/AuthPanel';
+import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { FinancialDashboardView } from './features/FinancialDashboardView';
-import { Match, Championship, Standing, MatchEvent, Club, Player, Referee, RefereeRating, RefereeRatingDetail, RefereeClassification, ContestRecord, ContestType, ClubValidationState, Lineup, Notification, NotificationType, MediaAsset, Venue, ChampionshipBundle } from './types';
+import { Match, Championship, Standing, MatchEvent, Club, Player, Referee, RefereeRating, RefereeRatingDetail, RefereeClassification, ContestRecord, ContestType, ClubValidationState, Lineup, Notification, NotificationType, MediaAsset, Venue, ChampionshipBundle, QualificationRules, QualificationZone } from './types';
+import { zoneForPosition, ZONE_TYPE_PRESETS } from './lib/qualification';
 import { MOCK_CHAMPIONSHIP, MOCK_CLUBS, MOCK_PLAYERS, MOCK_MATCHES, MOCK_VENUES, MOCK_REFEREES, MOCK_RATINGS } from './mockData';
 
 // Types for navigation
@@ -1459,6 +1461,24 @@ function ChampionshipsView({
   const [schedMsg, setSchedMsg] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
+  // ── Regras de classificação (zonas personalizadas) ──
+  const qual: QualificationRules = championship.rules.qualification ?? { enabled: false, zones: [] };
+  const updateQual = (next: QualificationRules) =>
+    setChampionship({ ...championship, rules: { ...championship.rules, qualification: next } });
+  const addZone = () => {
+    const lastTo = qual.zones.reduce((m, z) => Math.max(m, z.to), 0);
+    const preset = ZONE_TYPE_PRESETS.QUALIFIED;
+    const nz: QualificationZone = {
+      id: `z-${Date.now()}`, label: preset.label,
+      from: lastTo + 1, to: lastTo + 2, type: 'QUALIFIED', color: preset.color,
+    };
+    updateQual({ enabled: true, zones: [...qual.zones, nz] });
+  };
+  const updateZone = (id: string, patch: Partial<QualificationZone>) =>
+    updateQual({ ...qual, zones: qual.zones.map(z => z.id === id ? { ...z, ...patch } : z) });
+  const removeZone = (id: string) =>
+    updateQual({ ...qual, zones: qual.zones.filter(z => z.id !== id) });
+
   // New championship form state
   const [form, setForm] = useState({
     name: '', season: new Date().getFullYear().toString(),
@@ -1662,6 +1682,62 @@ function ChampionshipsView({
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Regras de classificação — zonas personalizadas */}
+      <div className="card-utility p-6 space-y-5">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h3 className="text-sm font-black uppercase text-primary tracking-tight">Regras de Classificação</h3>
+            <p className="text-[11px] text-text-muted font-bold uppercase tracking-widest mt-1">
+              Faixas por posição final na tabela (ex.: 1º–5º classificam, 6º–10º mata-mata, resto eliminado)
+            </p>
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" className="w-4 h-4 text-accent rounded" checked={qual.enabled}
+              onChange={e => updateQual({ ...qual, enabled: e.target.checked })} />
+            <span className="text-[11px] font-bold uppercase text-text-muted">Aplicar zonas na tabela</span>
+          </label>
+        </div>
+
+        {qual.zones.length === 0 && (
+          <p className="text-xs text-text-muted">Nenhuma zona definida ainda. Clique em “Adicionar zona”.</p>
+        )}
+
+        <div className="space-y-3">
+          {qual.zones.map(z => (
+            <div key={z.id} className="grid grid-cols-12 gap-2 items-center bg-neutral-50 border border-surface-border rounded-xl p-3">
+              <input type="color" value={z.color} onChange={e => updateZone(z.id, { color: e.target.value })}
+                className="col-span-1 w-9 h-9 rounded cursor-pointer border-0 bg-transparent p-0" title="Cor da zona" />
+              <input className="col-span-4 px-3 py-2 bg-white border border-surface-border rounded-lg text-sm focus:outline-none focus:border-accent"
+                placeholder="Rótulo (ex.: Classificação direta)" value={z.label} onChange={e => updateZone(z.id, { label: e.target.value })} />
+              <div className="col-span-2 flex items-center gap-1">
+                <input type="number" min={1} className="w-full px-2 py-2 bg-white border border-surface-border rounded-lg text-sm text-center focus:outline-none focus:border-accent"
+                  value={z.from} onChange={e => updateZone(z.id, { from: Math.max(1, +e.target.value) })} />
+                <span className="text-text-muted text-xs">à</span>
+                <input type="number" min={1} className="w-full px-2 py-2 bg-white border border-surface-border rounded-lg text-sm text-center focus:outline-none focus:border-accent"
+                  value={z.to} onChange={e => updateZone(z.id, { to: Math.max(1, +e.target.value) })} />
+              </div>
+              <select className="col-span-3 px-2 py-2 bg-white border border-surface-border rounded-lg text-sm focus:outline-none focus:border-accent"
+                value={z.type} onChange={e => {
+                  const t = e.target.value as QualificationZone['type'];
+                  updateZone(z.id, { type: t, color: ZONE_TYPE_PRESETS[t].color });
+                }}>
+                <option value="QUALIFIED">Classifica direto</option>
+                <option value="PLAYOFF">Mata-mata</option>
+                <option value="ELIMINATED">Eliminado</option>
+              </select>
+              <button type="button" onClick={() => removeZone(z.id)}
+                className="col-span-2 flex items-center justify-center text-red-500 hover:text-red-700" title="Remover zona">
+                <X size={16} />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <button type="button" onClick={addZone} className="btn-outline text-xs font-bold uppercase flex items-center gap-2">
+          <Plus size={14} /> Adicionar zona
+        </button>
       </div>
 
       {/* Modal Novo Campeonato */}
@@ -5195,22 +5271,16 @@ function App() {
     signIn,
     signUp,
     signOut,
+    mustChangePassword,
+    changePassword,
+    // ── Multi-championship bundle state (cada dono carrega só os seus) ──
+    allBundles,
+    setAllBundles,
+    activeChampId,
+    setActiveChampId,
+    orgByChamp,
+    organizationId,
   } = useAppData();
-
-  // ── Multi-championship bundle state ──────────────────────────────────────
-  const [allBundles, setAllBundles] = useState<ChampionshipBundle[]>([{
-    championship: MOCK_CHAMPIONSHIP,
-    clubs: MOCK_CLUBS,
-    players: MOCK_PLAYERS,
-    matches: MOCK_MATCHES,
-    venues: MOCK_VENUES,
-    referees: MOCK_REFEREES,
-    ratings: MOCK_RATINGS,
-    matchEvents: [],
-    notifications: [],
-    mediaAssets: [],
-  }]);
-  const [activeChampId, setActiveChampId] = useState<string>(MOCK_CHAMPIONSHIP.id);
 
   const activeBundle = allBundles.find(b => b.championship.id === activeChampId) ?? allBundles[0];
   const championship  = activeBundle.championship;
@@ -5227,18 +5297,26 @@ function App() {
   const _patchBundle = (id: string, patch: Partial<ChampionshipBundle>) =>
     setAllBundles(prev => prev.map(b => b.championship.id === id ? { ...b, ...patch } : b));
 
+  // Entidades de organização (clubes/atletas/campos/árbitros) são compartilhadas
+  // entre os campeonatos da MESMA org — patch propaga a todos para manter consistência
+  // (evita que salvar um torneio apague dados de outro da mesma org).
+  const _activeOrg = orgByChamp[activeChampId] ?? organizationId ?? null;
+  const _sameOrg = (id: string) => (orgByChamp[id] ?? organizationId ?? null) === _activeOrg;
+  const _patchOrgBundles = (patch: Partial<ChampionshipBundle>) =>
+    setAllBundles(prev => prev.map(b => _sameOrg(b.championship.id) ? { ...b, ...patch } : b));
+
   const setChampionship: React.Dispatch<React.SetStateAction<Championship>> = (a) =>
     _patchBundle(activeChampId, { championship: typeof a === 'function' ? a(championship) : a });
   const setClubs: React.Dispatch<React.SetStateAction<Club[]>> = (a) =>
-    _patchBundle(activeChampId, { clubs: typeof a === 'function' ? a(clubs) : a });
+    _patchOrgBundles({ clubs: typeof a === 'function' ? a(clubs) : a });
   const setPlayers: React.Dispatch<React.SetStateAction<Player[]>> = (a) =>
-    _patchBundle(activeChampId, { players: typeof a === 'function' ? a(players) : a });
+    _patchOrgBundles({ players: typeof a === 'function' ? a(players) : a });
   const setMatches: React.Dispatch<React.SetStateAction<Match[]>> = (a) =>
     _patchBundle(activeChampId, { matches: typeof a === 'function' ? a(matches) : a });
   const setVenues: React.Dispatch<React.SetStateAction<Venue[]>> = (a) =>
-    _patchBundle(activeChampId, { venues: typeof a === 'function' ? a(venues) : a });
+    _patchOrgBundles({ venues: typeof a === 'function' ? a(venues) : a });
   const setReferees: React.Dispatch<React.SetStateAction<Referee[]>> = (a) =>
-    _patchBundle(activeChampId, { referees: typeof a === 'function' ? a(referees) : a });
+    _patchOrgBundles({ referees: typeof a === 'function' ? a(referees) : a });
   const setRatings: React.Dispatch<React.SetStateAction<RefereeRating[]>> = (a) =>
     _patchBundle(activeChampId, { ratings: typeof a === 'function' ? a(ratings) : a });
   const setMatchEvents: React.Dispatch<React.SetStateAction<MatchEvent[]>> = (a) =>
@@ -5512,6 +5590,11 @@ function App() {
 
   return (
     <div className="min-h-screen bg-neutral-50 flex overflow-hidden relative">
+      {/* Troca de senha obrigatória (senha temporária do primeiro acesso) */}
+      {session && mustChangePassword && (
+        <ChangePasswordModal forced onChangePassword={changePassword} />
+      )}
+
       {/* Mobile backdrop */}
       <AnimatePresence>
         {isSidebarOpen && (
@@ -5892,9 +5975,19 @@ function DashboardView({ clubs, players, championship, standings, matches, onSwi
               <tbody className="divide-y divide-dotted divide-surface-border">
                 {standings.map((s, idx) => {
                   const club = clubs.find(c => c.id === s.teamId);
+                  const zone = zoneForPosition(championship.rules, idx + 1);
                   return (
                     <tr key={s.teamId} className="hover:bg-neutral-50/50 transition-colors">
-                      <td className="px-6 py-4 font-bold text-text-muted">{idx + 1}</td>
+                      <td className="px-6 py-4 font-bold text-text-muted">
+                        <span className="inline-flex items-center gap-2">
+                          <span
+                            className="w-1.5 h-4 rounded-sm shrink-0"
+                            style={{ backgroundColor: zone ? zone.color : 'transparent' }}
+                            title={zone?.label}
+                          />
+                          {idx + 1}
+                        </span>
+                      </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <img src={club?.logoUrl} className="w-6 h-6 rounded-md shadow-sm border border-surface-border" alt="" />
@@ -5930,6 +6023,16 @@ function DashboardView({ clubs, players, championship, standings, matches, onSwi
               </tbody>
             </table>
           </div>
+          {championship.rules.qualification?.enabled && (championship.rules.qualification.zones?.length ?? 0) > 0 && (
+            <div className="flex flex-wrap gap-x-4 gap-y-2 px-6 py-3 border-t border-surface-border bg-neutral-50/40">
+              {championship.rules.qualification.zones.map(z => (
+                <span key={z.id} className="flex items-center gap-1.5 text-[10px] font-bold text-text-muted uppercase tracking-wide">
+                  <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: z.color }} />
+                  {z.label} ({z.from}º{z.to > z.from ? `–${z.to}º` : ''})
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Upcoming Matches */}

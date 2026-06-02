@@ -80,10 +80,11 @@ export function AuthPanel({
 
   return (
     <div className="rounded-xl bg-white/10 p-3 space-y-2">
-      <p className="text-[9px] font-bold uppercase tracking-wider text-white/70">Entrar (Supabase)</p>
+      <p className="text-[9px] font-bold uppercase tracking-wider text-white/70">Entrar</p>
       <input
-        type="email"
-        placeholder="E-mail"
+        type="text"
+        autoComplete="username"
+        placeholder="Usuário ou e-mail"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         className="w-full text-[11px] rounded-lg px-2 py-1.5 bg-white/90 text-neutral-900 placeholder:text-neutral-400 border-0"

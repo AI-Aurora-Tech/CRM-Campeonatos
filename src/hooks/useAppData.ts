@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { DEFAULT_ORG_ID, fetchDashboard } from '../api/dashboard';
+import { DEFAULT_ORG_ID, fetchAllBundles } from '../api/dashboard';
 import { saveDashboardSnapshot } from '../api/snapshot';
 import { getSupabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import {
@@ -13,19 +13,48 @@ import {
   MOCK_USER,
   MOCK_VENUES,
 } from '../mockData';
-import type {
-  Championship,
-  Club,
-  Match,
-  MatchEvent,
-  MediaAsset,
-  Notification,
-  Player,
-  Referee,
-  RefereeRating,
-  User,
-  Venue,
-} from '../types';
+import type { ChampionshipBundle, User } from '../types';
+
+/** Id sentinela para o estado "dono ainda sem nenhum campeonato" (não persiste). */
+export const EMPTY_CHAMP_ID = '__empty__';
+
+function mockBundle(): ChampionshipBundle {
+  return {
+    championship: MOCK_CHAMPIONSHIP,
+    clubs: MOCK_CLUBS,
+    players: MOCK_PLAYERS,
+    matches: MOCK_MATCHES,
+    venues: MOCK_VENUES,
+    referees: MOCK_REFEREES,
+    ratings: MOCK_RATINGS,
+    matchEvents: [],
+    notifications: [],
+    mediaAssets: [],
+  };
+}
+
+/** Shell vazio para um dono que ainda não criou torneios. */
+function emptyOwnerBundle(): ChampionshipBundle {
+  return {
+    championship: {
+      id: EMPTY_CHAMP_ID,
+      name: 'Nenhum campeonato ainda',
+      season: String(new Date().getFullYear()),
+      type: 'POINTS_CORRIDOS',
+      status: 'PLANNING',
+      rules: { yellowCardLimit: 3, pointsPerWin: 3, pointsPerDraw: 1 },
+    },
+    clubs: [],
+    players: [],
+    matches: [],
+    venues: [],
+    referees: [],
+    ratings: [],
+    matchEvents: [],
+    notifications: [],
+    mediaAssets: [],
+  };
+}
 
 export function useAppData() {
   const supabase = useMemo(() => getSupabase(), []);
@@ -34,19 +63,15 @@ export function useAppData() {
   const [authReady, setAuthReady] = useState(!isSupabaseConfigured);
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [remoteError, setRemoteError] = useState<string | null>(null);
-  const [publicSlug, setPublicSlug] = useState<string | null>(null);
-  const [organizationId, setOrganizationId] = useState(DEFAULT_ORG_ID);
+  const [organizationId, setOrganizationId] = useState<string | null>(DEFAULT_ORG_ID);
+  /** Senha temporária: força a troca no primeiro login. */
+  const [mustChangePassword, setMustChangePassword] = useState(false);
 
-  const [clubs, setClubs] = useState<Club[]>(MOCK_CLUBS);
-  const [players, setPlayers] = useState<Player[]>(MOCK_PLAYERS);
-  const [referees, setReferees] = useState<Referee[]>(MOCK_REFEREES);
-  const [ratings, setRatings] = useState<RefereeRating[]>(MOCK_RATINGS);
-  const [matches, setMatches] = useState<Match[]>(MOCK_MATCHES);
-  const [venues, setVenues] = useState<Venue[]>(MOCK_VENUES);
-  const [matchEvents, setMatchEvents] = useState<MatchEvent[]>([]);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [mediaAssets, setMediaAssets] = useState<MediaAsset[]>([]);
-  const [championship, setChampionship] = useState<Championship>(MOCK_CHAMPIONSHIP);
+  // ── Estado multi-campeonato (cada dono carrega só os seus) ────────────────
+  const [allBundles, setAllBundles] = useState<ChampionshipBundle[]>([mockBundle()]);
+  const [activeChampId, setActiveChampId] = useState<string>(MOCK_CHAMPIONSHIP.id);
+  const [orgByChamp, setOrgByChamp] = useState<Record<string, string>>({});
+  const [publicSlugByChamp, setPublicSlugByChamp] = useState<Record<string, string | null>>({});
 
   const lastSavedKey = useRef<string>('');
   /** Evita gravar mock no banco antes do primeiro fetch pós-login. */
@@ -75,6 +100,26 @@ export function useAppData() {
 
   const useRemote = Boolean(supabase && session);
 
+  // Carrega a flag de troca de senha obrigatória do perfil do usuário logado.
+  useEffect(() => {
+    if (!supabase || !session) {
+      setMustChangePassword(false);
+      return;
+    }
+    let cancelled = false;
+    void supabase
+      .from('profiles')
+      .select('must_change_password')
+      .eq('user_id', session.user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) setMustChangePassword(Boolean(data?.must_change_password));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, session]);
+
   useEffect(() => {
     if (!supabase || !session) {
       setDataHydrated(true);
@@ -88,17 +133,17 @@ export function useAppData() {
     setRemoteLoading(true);
     setRemoteError(null);
     try {
-      const d = await fetchDashboard(supabase);
-      setChampionship(d.championship);
-      setClubs(d.clubs);
-      setPlayers(d.players);
-      setVenues(d.venues);
-      setReferees(d.referees);
-      setMatches(d.matches);
-      setRatings(d.ratings);
-      setMatchEvents(d.matchEvents);
-      setPublicSlug(d.publicSlug);
-      setOrganizationId(d.organizationId);
+      const res = await fetchAllBundles(supabase);
+      const bundles = res.bundles.length > 0 ? res.bundles : [emptyOwnerBundle()];
+      setAllBundles(bundles);
+      setOrgByChamp(res.orgByChamp);
+      setPublicSlugByChamp(res.publicSlugByChamp);
+      setOrganizationId(res.organizationId);
+      setActiveChampId((prev) =>
+        bundles.some((b) => b.championship.id === prev)
+          ? prev
+          : res.activeId ?? bundles[0].championship.id
+      );
       lastSavedKey.current = '';
       setDataHydrated(true);
     } catch (e) {
@@ -113,19 +158,27 @@ export function useAppData() {
     if (useRemote) void loadRemote();
   }, [useRemote, loadRemote]);
 
+  const activeBundle =
+    allBundles.find((b) => b.championship.id === activeChampId) ?? allBundles[0];
+  const activeOrgId = orgByChamp[activeChampId] ?? organizationId ?? DEFAULT_ORG_ID;
+  const publicSlug = publicSlugByChamp[activeChampId] ?? null;
+
+  // Salva o campeonato ativo na organização dona (debounce).
   useEffect(() => {
-    if (!useRemote || !supabase || remoteLoading || !dataHydrated) return;
+    if (!useRemote || !supabase || remoteLoading || !dataHydrated || !activeBundle) return;
+    if (activeBundle.championship.id === EMPTY_CHAMP_ID) return; // shell vazio não persiste
 
     const payload = {
-      championship,
+      championship: activeBundle.championship,
       publicSlug,
-      clubs,
-      players,
-      venues,
-      referees,
-      matches,
-      ratings,
-      matchEvents,
+      organizationId: activeOrgId,
+      clubs: activeBundle.clubs,
+      players: activeBundle.players,
+      venues: activeBundle.venues,
+      referees: activeBundle.referees,
+      matches: activeBundle.matches,
+      ratings: activeBundle.ratings,
+      matchEvents: activeBundle.matchEvents,
     };
     const key = JSON.stringify(payload);
     if (key === lastSavedKey.current) return;
@@ -147,16 +200,10 @@ export function useAppData() {
     useRemote,
     supabase,
     remoteLoading,
-    championship,
-    publicSlug,
-    clubs,
-    players,
-    venues,
-    referees,
-    matches,
-    ratings,
-    matchEvents,
     dataHydrated,
+    activeBundle,
+    publicSlug,
+    activeOrgId,
   ]);
 
   const userForUi: User = useMemo(() => {
@@ -173,11 +220,38 @@ export function useAppData() {
   }, [session]);
 
   const signIn = useCallback(
-    async (email: string, password: string) => {
+    async (identifier: string, password: string) => {
       if (!supabase) return { data: null, error: { message: 'Supabase não configurado' } };
+      let email = identifier.trim();
+      // Login por usuário: se não parecer e-mail, resolve usuário -> e-mail no banco.
+      if (!email.includes('@')) {
+        const { data: resolved } = await supabase.rpc('resolve_login_email', {
+          p_username: email,
+        });
+        if (typeof resolved === 'string' && resolved) {
+          email = resolved;
+        } else {
+          return { data: null, error: { message: 'Usuário ou senha inválidos' } };
+        }
+      }
       return supabase.auth.signInWithPassword({ email, password });
     },
     [supabase]
+  );
+
+  const changePassword = useCallback(
+    async (newPassword: string) => {
+      if (!supabase || !session) return { error: { message: 'Sem sessão ativa' } };
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) return { error: { message: error.message } };
+      await supabase
+        .from('profiles')
+        .update({ must_change_password: false })
+        .eq('user_id', session.user.id);
+      setMustChangePassword(false);
+      return { error: null };
+    },
+    [supabase, session]
   );
 
   const signUp = useCallback(
@@ -191,16 +265,12 @@ export function useAppData() {
   const signOut = useCallback(async () => {
     if (!supabase) return;
     await supabase.auth.signOut();
-    setChampionship(MOCK_CHAMPIONSHIP);
-    setClubs(MOCK_CLUBS);
-    setPlayers(MOCK_PLAYERS);
-    setReferees(MOCK_REFEREES);
-    setRatings(MOCK_RATINGS);
-    setMatches(MOCK_MATCHES);
-    setVenues(MOCK_VENUES);
-    setMatchEvents([]);
-    setPublicSlug(null);
+    setAllBundles([mockBundle()]);
+    setActiveChampId(MOCK_CHAMPIONSHIP.id);
+    setOrgByChamp({});
+    setPublicSlugByChamp({});
     setOrganizationId(DEFAULT_ORG_ID);
+    setMustChangePassword(false);
     lastSavedKey.current = '';
     setDataHydrated(true);
   }, [supabase]);
@@ -215,30 +285,17 @@ export function useAppData() {
     remoteError,
     publicSlug,
     organizationId,
+    orgByChamp,
     userForUi,
-    clubs,
-    setClubs,
-    players,
-    setPlayers,
-    referees,
-    setReferees,
-    ratings,
-    setRatings,
-    matches,
-    setMatches,
-    venues,
-    setVenues,
-    matchEvents,
-    setMatchEvents,
-    notifications,
-    setNotifications,
-    mediaAssets,
-    setMediaAssets,
-    championship,
-    setChampionship,
+    allBundles,
+    setAllBundles,
+    activeChampId,
+    setActiveChampId,
     loadRemote,
     signIn,
     signUp,
     signOut,
+    mustChangePassword,
+    changePassword,
   };
 }
