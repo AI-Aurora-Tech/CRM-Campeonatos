@@ -86,9 +86,11 @@ import { GoogleGenAI } from "@google/genai";
 import { useAppData } from './hooks/useAppData';
 import { AuthPanel } from './components/AuthPanel';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { LandingPage } from './components/LandingPage';
+import { TeamView } from './components/TeamView';
 import { FinancialDashboardView } from './features/FinancialDashboardView';
 import { Match, Championship, Standing, MatchEvent, Club, Player, Referee, RefereeRating, RefereeRatingDetail, RefereeClassification, ContestRecord, ContestType, ClubValidationState, Lineup, Notification, NotificationType, MediaAsset, Venue, ChampionshipBundle, QualificationRules, QualificationZone } from './types';
-import { zoneForPosition, ZONE_TYPE_PRESETS } from './lib/qualification';
+import { zoneForPosition, ZONE_TYPE_PRESETS, buildPlayoffPairs } from './lib/qualification';
 import { MOCK_CHAMPIONSHIP, MOCK_CLUBS, MOCK_PLAYERS, MOCK_MATCHES, MOCK_VENUES, MOCK_REFEREES, MOCK_RATINGS } from './mockData';
 
 // Types for navigation
@@ -1442,6 +1444,9 @@ function ChampionshipsView({
   onSelectChampionship,
   onCreateChampionship,
   setChampionship,
+  standings,
+  matches,
+  setMatches,
   supabase,
   useRemote,
   publicSlug,
@@ -1452,14 +1457,39 @@ function ChampionshipsView({
   onSelectChampionship: (id: string) => void;
   onCreateChampionship: (bundle: ChampionshipBundle) => void;
   setChampionship: React.Dispatch<React.SetStateAction<Championship>>;
+  standings: Standing[];
+  matches: Match[];
+  setMatches: React.Dispatch<React.SetStateAction<Match[]>>;
   supabase: SupabaseClient | null;
   useRemote: boolean;
   publicSlug: string | null;
   onScheduleReload: () => Promise<void>;
 }) {
-  const championship = allBundles.find(b => b.championship.id === activeChampId)!.championship;
+  const activeBundle = allBundles.find(b => b.championship.id === activeChampId)!;
+  const championship = activeBundle.championship;
+  const activeClubs = activeBundle.clubs;
   const [schedMsg, setSchedMsg] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [inviteClubId, setInviteClubId] = useState('');
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [inviteMsg, setInviteMsg] = useState<string | null>(null);
+
+  // ── Inscrições de atletas (liga/desliga por campeonato) ──
+  const registrationOpen = Boolean((championship.rules as { registrationOpen?: boolean }).registrationOpen);
+  const toggleRegistration = () =>
+    setChampionship({ ...championship, rules: { ...championship.rules, registrationOpen: !registrationOpen } });
+
+  // ── Convite de time (gera link para o clube criar acesso) ──
+  const generateInvite = async () => {
+    setInviteMsg(null);
+    setInviteLink(null);
+    if (!supabase || !useRemote) { setInviteMsg('Faça login para gerar convites.'); return; }
+    if (!inviteClubId) { setInviteMsg('Selecione um time.'); return; }
+    const { data, error } = await supabase.rpc('create_club_invite', { p_club_id: inviteClubId });
+    if (error) { setInviteMsg(error.message); return; }
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    setInviteLink(`${origin}/convite/${data}`);
+  };
 
   // ── Regras de classificação (zonas personalizadas) ──
   const qual: QualificationRules = championship.rules.qualification ?? { enabled: false, zones: [] };
@@ -1478,6 +1508,31 @@ function ChampionshipsView({
     updateQual({ ...qual, zones: qual.zones.map(z => z.id === id ? { ...z, ...patch } : z) });
   const removeZone = (id: string) =>
     updateQual({ ...qual, zones: qual.zones.filter(z => z.id !== id) });
+
+  // Gera os confrontos do mata-mata a partir das zonas PLAYOFF + classificação.
+  const generatePlayoff = () => {
+    const pairs = buildPlayoffPairs(championship.rules, standings);
+    if (pairs.length === 0) {
+      setSchedMsg('Defina uma zona do tipo "Mata-mata" com 2+ times e jogos disputados para gerar os confrontos.');
+      return;
+    }
+    const base = new Date();
+    base.setDate(base.getDate() + 14);
+    const dateStr = base.toISOString().slice(0, 10);
+    const stamp = Date.now();
+    const newMatches: Match[] = pairs.map((p, i) => ({
+      id: `ko-${stamp}-${i}`,
+      championshipId: championship.id,
+      homeTeamId: p.homeTeamId,
+      awayTeamId: p.awayTeamId,
+      date: dateStr,
+      time: '16:00',
+      location: 'Mata-mata (Playoff)',
+      status: 'SCHEDULED',
+    }));
+    setMatches(prev => [...prev, ...newMatches]);
+    setSchedMsg(`${newMatches.length} confronto(s) de mata-mata gerado(s): ${pairs.map(p => p.seedLabel).join(', ')}.`);
+  };
 
   // New championship form state
   const [form, setForm] = useState({
@@ -1684,6 +1739,47 @@ function ChampionshipsView({
         </div>
       </div>
 
+      {/* Inscrições de atletas + convites de times */}
+      <div className="card-utility p-6 space-y-5">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h3 className="text-sm font-black uppercase text-primary tracking-tight">Inscrições & Times</h3>
+            <p className="text-[11px] text-text-muted font-bold uppercase tracking-widest mt-1">
+              Libere as inscrições e convide os times para cadastrarem seus atletas
+            </p>
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" className="w-4 h-4 text-accent rounded" checked={registrationOpen} onChange={toggleRegistration} />
+            <span className={`text-[11px] font-black uppercase ${registrationOpen ? 'text-green-600' : 'text-text-muted'}`}>
+              {registrationOpen ? 'Inscrições abertas' : 'Inscrições fechadas'}
+            </span>
+          </label>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex-1 min-w-[200px]">
+            <label className="text-[11px] font-bold uppercase text-text-muted tracking-widest pl-1">Convidar time</label>
+            <select className="w-full mt-1 px-4 py-2.5 bg-neutral-50 border border-surface-border rounded-xl focus:outline-none focus:border-accent text-sm"
+              value={inviteClubId} onChange={e => setInviteClubId(e.target.value)}>
+              <option value="">— Selecione um time —</option>
+              {activeClubs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <button type="button" onClick={() => void generateInvite()} className="btn-primary text-xs font-bold uppercase flex items-center gap-2">
+            <ExternalLink size={14} /> Gerar link de convite
+          </button>
+        </div>
+
+        {inviteMsg && <p className="text-xs text-accent font-bold">{inviteMsg}</p>}
+        {inviteLink && (
+          <div className="flex flex-wrap items-center gap-3 bg-neutral-50 border border-surface-border rounded-xl p-3">
+            <code className="text-[11px] text-primary break-all flex-1">{inviteLink}</code>
+            <button type="button" onClick={() => { void navigator.clipboard?.writeText(inviteLink); setInviteMsg('Link copiado!'); }}
+              className="btn-outline text-[10px] font-bold uppercase">Copiar</button>
+          </div>
+        )}
+      </div>
+
       {/* Regras de classificação — zonas personalizadas */}
       <div className="card-utility p-6 space-y-5">
         <div className="flex items-center justify-between flex-wrap gap-3">
@@ -1735,9 +1831,19 @@ function ChampionshipsView({
           ))}
         </div>
 
-        <button type="button" onClick={addZone} className="btn-outline text-xs font-bold uppercase flex items-center gap-2">
-          <Plus size={14} /> Adicionar zona
-        </button>
+        <div className="flex flex-wrap items-center gap-3 pt-1">
+          <button type="button" onClick={addZone} className="btn-outline text-xs font-bold uppercase flex items-center gap-2">
+            <Plus size={14} /> Adicionar zona
+          </button>
+          <button type="button" onClick={generatePlayoff} className="btn-primary text-xs font-bold uppercase flex items-center gap-2">
+            <Trophy size={14} /> Gerar mata-mata pelas zonas
+          </button>
+          {matches.some(m => m.location === 'Mata-mata (Playoff)') && (
+            <span className="text-[10px] font-bold text-text-muted uppercase">
+              {matches.filter(m => m.location === 'Mata-mata (Playoff)').length} confronto(s) de playoff já no calendário
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Modal Novo Campeonato */}
@@ -3253,12 +3359,17 @@ function PublicPortalView({ clubs, matches, players, standings, championship }: 
                     <tbody className="divide-y divide-surface-border">
                       {standings.map((s, idx) => {
                         const club = clubs.find(c => c.id === s.teamId);
+                        const zone = zoneForPosition(championship.rules, idx + 1);
+                        // Fallback ao destaque antigo quando não há zonas configuradas.
+                        const fallbackClass = idx < 4 ? 'bg-green-500 text-white' : idx >= standings.length - 2 ? 'bg-red-500 text-white' : 'bg-neutral-100 text-text-muted';
                         return (
                           <tr key={s.teamId} className="hover:bg-neutral-50/50 transition-colors">
                             <td className="px-6 py-5">
-                               <span className={`w-6 h-6 flex items-center justify-center rounded-lg text-xs font-black ${
-                                 idx < 4 ? 'bg-green-500 text-white' : idx >= standings.length - 2 ? 'bg-red-500 text-white' : 'bg-neutral-100 text-text-muted'
-                               }`}>
+                               <span
+                                 className={`w-6 h-6 flex items-center justify-center rounded-lg text-xs font-black ${zone ? 'text-white' : fallbackClass}`}
+                                 style={zone ? { backgroundColor: zone.color } : undefined}
+                                 title={zone?.label}
+                               >
                                   {idx + 1}
                                </span>
                             </td>
@@ -3299,6 +3410,16 @@ function PublicPortalView({ clubs, matches, players, standings, championship }: 
                     </tbody>
                   </table>
                 </div>
+                {championship.rules.qualification?.enabled && (championship.rules.qualification.zones?.length ?? 0) > 0 && (
+                  <div className="flex flex-wrap gap-x-5 gap-y-2 px-6 py-4 border-t border-surface-border bg-neutral-50/50">
+                    {championship.rules.qualification.zones.map(z => (
+                      <span key={z.id} className="flex items-center gap-2 text-[11px] font-bold text-text-muted uppercase tracking-wide">
+                        <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: z.color }} />
+                        {z.label} ({z.from}º{z.to > z.from ? `–${z.to}º` : ''})
+                      </span>
+                    ))}
+                  </div>
+                )}
              </div>
           </motion.div>
         )}
@@ -5273,6 +5394,8 @@ function App() {
     signOut,
     mustChangePassword,
     changePassword,
+    role,
+    clubId,
     // ── Multi-championship bundle state (cada dono carrega só os seus) ──
     allBundles,
     setAllBundles,
@@ -5588,6 +5711,37 @@ function App() {
     }
   };
 
+  // Enquanto a sessão é verificada, evita piscar a UI.
+  if (hasSupabase && !authReady) {
+    return <div className="min-h-screen flex items-center justify-center bg-neutral-50 text-text-muted text-sm font-bold uppercase tracking-widest">Carregando…</div>;
+  }
+
+  // Porta de entrada pública: com Supabase configurado e sem sessão, mostra a landing/login.
+  if (hasSupabase && authReady && !session) {
+    return <LandingPage supabase={supabase} onSignIn={signIn} />;
+  }
+
+  // Visão do TIME (clube): só o próprio elenco + seus jogos.
+  if (role === 'CLUB_ADMIN') {
+    return (
+      <>
+        {mustChangePassword && <ChangePasswordModal forced onChangePassword={changePassword} />}
+        <TeamView
+          clubId={clubId}
+          clubs={clubs}
+          players={players}
+          matches={matches}
+          championship={championship}
+          standings={standings}
+          supabase={supabase}
+          userName={userForUi.name}
+          onReload={loadRemote}
+          onSignOut={signOut}
+        />
+      </>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-neutral-50 flex overflow-hidden relative">
       {/* Troca de senha obrigatória (senha temporária do primeiro acesso) */}
@@ -5746,6 +5900,9 @@ function App() {
                     setActiveChampId(bundle.championship.id);
                   }}
                   setChampionship={setChampionship}
+                  standings={standings}
+                  matches={matches}
+                  setMatches={setMatches}
                   supabase={supabase}
                   useRemote={useRemote}
                   publicSlug={publicSlug}

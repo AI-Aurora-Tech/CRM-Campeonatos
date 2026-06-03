@@ -66,6 +66,9 @@ export function useAppData() {
   const [organizationId, setOrganizationId] = useState<string | null>(DEFAULT_ORG_ID);
   /** Senha temporária: força a troca no primeiro login. */
   const [mustChangePassword, setMustChangePassword] = useState(false);
+  /** Papel do usuário na org: organizador (SUPER_ADMIN) ou time (CLUB_ADMIN). */
+  const [role, setRole] = useState<'SUPER_ADMIN' | 'CLUB_ADMIN' | null>(null);
+  const [clubId, setClubId] = useState<string | null>(null);
 
   // ── Estado multi-campeonato (cada dono carrega só os seus) ────────────────
   const [allBundles, setAllBundles] = useState<ChampionshipBundle[]>([mockBundle()]);
@@ -120,6 +123,41 @@ export function useAppData() {
     };
   }, [supabase, session]);
 
+  // Papel do usuário (organizador x time) a partir do vínculo na org.
+  useEffect(() => {
+    if (!supabase || !session) {
+      setRole(null);
+      setClubId(null);
+      return;
+    }
+    let cancelled = false;
+    void supabase
+      .from('organization_members')
+      .select('role, club_id')
+      .eq('user_id', session.user.id)
+      .order('role', { ascending: true }) // CLUB_ADMIN < SUPER_ADMIN alfabeticamente
+      .then(({ data }) => {
+        if (cancelled) return;
+        const rows = (data ?? []) as { role: string; club_id: string | null }[];
+        // Prioriza vínculo de organizador, se houver.
+        const admin = rows.find((r) => r.role === 'SUPER_ADMIN');
+        const team = rows.find((r) => r.role === 'CLUB_ADMIN');
+        if (admin) {
+          setRole('SUPER_ADMIN');
+          setClubId(null);
+        } else if (team) {
+          setRole('CLUB_ADMIN');
+          setClubId(team.club_id);
+        } else {
+          setRole(null);
+          setClubId(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, session]);
+
   useEffect(() => {
     if (!supabase || !session) {
       setDataHydrated(true);
@@ -167,6 +205,7 @@ export function useAppData() {
   useEffect(() => {
     if (!useRemote || !supabase || remoteLoading || !dataHydrated || !activeBundle) return;
     if (activeBundle.championship.id === EMPTY_CHAMP_ID) return; // shell vazio não persiste
+    if (role !== 'SUPER_ADMIN') return; // só o organizador grava o snapshot da org (RLS)
 
     const payload = {
       championship: activeBundle.championship,
@@ -204,6 +243,7 @@ export function useAppData() {
     activeBundle,
     publicSlug,
     activeOrgId,
+    role,
   ]);
 
   const userForUi: User = useMemo(() => {
@@ -271,6 +311,8 @@ export function useAppData() {
     setPublicSlugByChamp({});
     setOrganizationId(DEFAULT_ORG_ID);
     setMustChangePassword(false);
+    setRole(null);
+    setClubId(null);
     lastSavedKey.current = '';
     setDataHydrated(true);
   }, [supabase]);
@@ -297,5 +339,7 @@ export function useAppData() {
     signOut,
     mustChangePassword,
     changePassword,
+    role,
+    clubId,
   };
 }

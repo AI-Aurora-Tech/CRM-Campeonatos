@@ -28,6 +28,8 @@ export interface Championship {
     maxAge?: number;
     /** Regras de classificação personalizadas (zonas por posição na tabela). */
     qualification?: QualificationRules;
+    /** Inscrições de atletas abertas para os times (liga/desliga pelo dono). */
+    registrationOpen?: boolean;
   };
 }
 
